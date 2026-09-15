@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/application-storage-runtime-authority.v1.schema.json",
+  "title": "Reviewed application storage runtime authority v1",
+  "description": "Opt-in authority for the existing baseline owner. A reviewed outer pin protects all independent inner pins. The real storage verifier validates each closed nested schema and current observations at every admission.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kms_ownership_mode",
+    "application_storage_foundation",
+    "expected_application_storage_digest",
+    "application_storage_readback",
+    "expected_application_storage_readback_digest",
+    "application_storage_access",
+    "expected_application_storage_access",
+    "release_digest",
+    "release_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "application-storage-runtime-authority.v1"
+    },
+    "kms_ownership_mode": {
+      "const": "baseline"
+    },
+    "application_storage_foundation": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "expected_application_storage_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "application_storage_readback": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "expected_application_storage_readback_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "application_storage_access": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "expected_application_storage_access": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "release_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "release_version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

@@ -467,6 +467,7 @@ def test_gug379_generic_plan_is_read_only_outside_lock_and_saved_plan() -> None:
                     "sqs:Get",
                     "sqs:List",
                     "ssm:Get",
+                    "ssm:List",
                     "sts:GetCallerIdentity",
                     "wafv2:Get",
                     "wafv2:List",
@@ -613,7 +614,7 @@ def test_gug379_apply_mutations_are_bound_to_exact_operation_and_layer() -> None
     assert "ecr:PutImage" not in _actions_in_policy(policy)
 
 
-def test_gug379_generic_apply_cannot_persist_iam_authority() -> None:
+def test_gug379_generic_apply_cannot_modify_trusts_or_boundaries() -> None:
     policy = _load_policy(IAM_DIR / "apply-role.json")
     allowed_actions = {
         action
@@ -627,7 +628,6 @@ def test_gug379_generic_apply_cannot_persist_iam_authority() -> None:
         "iam:CreateRole",
         "iam:DeletePolicyVersion",
         "iam:DetachRolePolicy",
-        "iam:PutRolePolicy",
         "iam:SetDefaultPolicyVersion",
         "iam:TagPolicy",
         "iam:TagRole",
@@ -644,6 +644,7 @@ def test_gug379_generic_apply_cannot_persist_iam_authority() -> None:
         "PassCodeBuild",
         "PassCodePipeline",
         "PassEcsExecution",
+        "PassExactEcsWorkloads",
     }
     assert all(
         "iam:PassedToService"

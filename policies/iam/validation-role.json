@@ -82,7 +82,15 @@
         "ecr:DescribeImages",
         "ecr:GetDownloadUrlForLayer"
       ],
-      "Resource": "arn:${aws_partition}:ecr:${region}:${account_id}:repository/scanalyze/*",
+      "Resource": [
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-ingest-api",
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-ocr-worker",
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-classifier-worker",
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-bank-worker",
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-personal-worker",
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-gov-worker",
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-postprocess-worker"
+      ],
       "Condition": {
         "StringEquals": {
           "aws:PrincipalTag/operation": "validate",

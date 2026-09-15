@@ -68,6 +68,21 @@ class PolicyDecision:
     checks: tuple[PolicyCheck, ...]
 
 
+@dataclass(frozen=True)
+class SigningAdmission:
+    """Unsigned input validation only; deliberately has no promotion `allowed`."""
+
+    admitted: bool
+    code: str
+    reason: str
+    manifest_digest: str | None
+    checks: tuple[PolicyCheck, ...]
+
+
+def _signing_failed(code, reason, checks, manifest_digest=None) -> SigningAdmission:
+    return SigningAdmission(False, code, reason, manifest_digest, tuple(checks))
+
+
 def _failed(
     code: str,
     reason: str,
@@ -134,6 +149,20 @@ def _schema_errors(document: Mapping[str, Any], schema_name: str) -> list[str]:
         f"{'.'.join(str(part) for part in error.path) or '$'}: {error.message}"
         for error in errors
     ]
+
+
+def _signing_input_schema_errors(document: Mapping[str, Any], field: str) -> list[str]:
+    """Fixed sub-schemas from the release attestation contract; no fake signature."""
+    from jsonschema import Draft202012Validator, FormatChecker
+
+    envelope = json.loads((SCHEMAS / "release-attestation.v2.schema.json").read_text(encoding="utf-8"))
+    schema = copy.deepcopy(envelope["properties"][field])
+    schema["$defs"] = envelope["$defs"]
+    if field == "signature":
+        schema["required"].remove("value")
+        del schema["properties"]["value"]
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+    return [error.message for error in validator.iter_errors(document)]
 
 
 def _parse_time(value: str) -> datetime:
@@ -267,21 +296,22 @@ def _digest_from_content_uri(uri: str) -> str | None:
     return f"sha256:{candidate}"
 
 
-def evaluate_release(
+def admit_release_signing_inputs(
     manifest: Mapping[str, Any],
-    attestation: Mapping[str, Any],
+    statement: Mapping[str, Any],
+    signer_metadata: Mapping[str, Any],
     policy: Mapping[str, Any],
     *,
     expected_policy_digest: str,
     evaluated_at: datetime | None = None,
-) -> PolicyDecision:
-    """Evaluate a release without fallback, inference, or partial success."""
+) -> SigningAdmission:
+    """Admit unsigned inputs; this result never authorizes release promotion."""
 
     checks: list[PolicyCheck] = []
     now = (evaluated_at or datetime.now(UTC)).astimezone(UTC)
 
     if manifest.get("schema_version") != "release.v2":
-        return _failed(
+        return _signing_failed(
             "LEGACY_MANIFEST_DENIED",
             "Only release.v2 is eligible; older or unversioned records require reviewed migration.",
             checks,
@@ -289,20 +319,23 @@ def evaluate_release(
 
     for document, schema_name, code in (
         (manifest, "release.v2.schema.json", "RELEASE_SCHEMA_INVALID"),
-        (attestation, "release-attestation.v2.schema.json", "ATTESTATION_SCHEMA_INVALID"),
         (policy, "release-trust-policy.v1.schema.json", "POLICY_SCHEMA_INVALID"),
     ):
         errors = _schema_errors(document, schema_name)
         if errors:
-            return _failed(code, "; ".join(errors[:5]), checks)
-    checks.append(_passed("schemas", "manifest, attestation, and trust policy are structurally valid"))
+            return _signing_failed(code, "; ".join(errors[:5]), checks)
+    for value, field in ((statement, "statement"), (signer_metadata, "signature")):
+        errors = _signing_input_schema_errors(value, field)
+        if errors:
+            return _signing_failed("ATTESTATION_SCHEMA_INVALID", "; ".join(errors[:5]), checks)
+    checks.append(_passed("schemas", "manifest, statement, signer metadata, and trust policy are structurally valid"))
 
     expected_manifest_digest = canonical_digest(
         manifest, omit_fields={"release_manifest_digest"}
     )
     claimed_manifest_digest = manifest["release_manifest_digest"]
     if claimed_manifest_digest != expected_manifest_digest:
-        return _failed(
+        return _signing_failed(
             "MANIFEST_DIGEST_MISMATCH",
             "The canonical manifest digest does not match the claimed digest.",
             checks,
@@ -312,7 +345,7 @@ def evaluate_release(
 
     manifest_created_at = _parse_time(manifest["created_at"])
     if manifest_created_at > now:
-        return _failed(
+        return _signing_failed(
             "MANIFEST_TIME_INVALID",
             "Release manifest creation time is in the future.",
             checks,
@@ -321,14 +354,14 @@ def evaluate_release(
 
     computed_policy_digest = canonical_digest(policy)
     if expected_policy_digest != computed_policy_digest:
-        return _failed(
+        return _signing_failed(
             "TRUST_POLICY_NOT_APPROVED",
             "The supplied trust policy does not match the externally approved digest.",
             checks,
             claimed_manifest_digest,
         )
     if manifest["policy_digest"] != computed_policy_digest:
-        return _failed(
+        return _signing_failed(
             "POLICY_DIGEST_MISMATCH",
             "Manifest is not bound to the supplied trust policy.",
             checks,
@@ -341,7 +374,7 @@ def evaluate_release(
         source["repository"] not in policy["allowed_source_repositories"]
         or source["ref"] not in policy["allowed_source_refs"]
     ):
-        return _failed(
+        return _signing_failed(
             "SOURCE_NOT_TRUSTED",
             "Source repository or ref is not trusted by release policy.",
             checks,
@@ -358,14 +391,14 @@ def evaluate_release(
         or builder["runner_image"] not in policy["allowed_runner_images"]
         or builder["workflow_ref"] != expected_workflow_ref
     ):
-        return _failed(
+        return _signing_failed(
             "BUILDER_NOT_TRUSTED",
             "Builder identity, build type, or immutable workflow revision is not trusted.",
             checks,
             claimed_manifest_digest,
         )
     if builder["toolchain"] != policy["required_toolchain"]:
-        return _failed(
+        return _signing_failed(
             "TOOLCHAIN_MISMATCH",
             "Release toolchain is missing, mutable, or differs from the approved lock.",
             checks,
@@ -376,7 +409,7 @@ def evaluate_release(
     artifact_ids = set(manifest["artifacts"])
     required_ids = set(policy["required_artifacts"])
     if artifact_ids != REQUIRED_ARTIFACT_IDS or required_ids != REQUIRED_ARTIFACT_IDS:
-        return _failed(
+        return _signing_failed(
             "ARTIFACT_INVENTORY_MISMATCH",
             "Manifest and policy must contain the exact reviewed runtime artifact inventory.",
             checks,
@@ -392,21 +425,21 @@ def evaluate_release(
         artifact_subjects[artifact_id] = digest
         if artifact["kind"] == "container":
             if _digest_from_uri(artifact["uri"]) != digest:
-                return _failed(
+                return _signing_failed(
                     "ARTIFACT_DIGEST_MISMATCH",
                     f"{artifact_id} URI is not bound to its exact digest.",
                     checks,
                     claimed_manifest_digest,
                 )
             if _digest_from_uri(artifact["base_image_uri"]) != artifact["base_image_digest"]:
-                return _failed(
+                return _signing_failed(
                     "BASE_IMAGE_DIGEST_MISMATCH",
                     f"{artifact_id} base image is not digest-bound.",
                     checks,
                     claimed_manifest_digest,
                 )
             if artifact["base_image_uri"] != policy["required_base_images"][artifact_id]:
-                return _failed(
+                return _signing_failed(
                     "BASE_IMAGE_NOT_APPROVED",
                     f"{artifact_id} base image differs from the approved trust policy.",
                     checks,
@@ -415,14 +448,14 @@ def evaluate_release(
         else:
             uri_digest = _digest_from_content_uri(artifact["uri"])
             if uri_digest is None:
-                return _failed(
+                return _signing_failed(
                     "ARTIFACT_DIGEST_MISMATCH",
                     f"{artifact_id} archive URI is not a valid content-addressed form.",
                     checks,
                     claimed_manifest_digest,
                 )
             if uri_digest != digest:
-                return _failed(
+                return _signing_failed(
                     "ARTIFACT_DIGEST_MISMATCH",
                     f"{artifact_id} archive URI digest does not match declared artifact digest.",
                     checks,
@@ -437,7 +470,7 @@ def evaluate_release(
         )
         for evidence_name, record, digest_field, tool_name in evidence:
             if record["subject_digest"] != digest:
-                return _failed(
+                return _signing_failed(
                     "EVIDENCE_SUBJECT_MISMATCH",
                     f"{artifact_id} {evidence_name} is bound to a different subject.",
                     checks,
@@ -445,7 +478,7 @@ def evaluate_release(
                 )
             evidence_digest = record[digest_field]
             if evidence_digest in evidence_digests:
-                return _failed(
+                return _signing_failed(
                     "EVIDENCE_REUSE_DENIED",
                     "Evidence digests must be unique to prevent cross-artifact substitution.",
                     checks,
@@ -455,7 +488,7 @@ def evaluate_release(
             if tool_name:
                 tool_field = "generator" if evidence_name == "sbom" else "scanner"
                 if record[tool_field] != builder["toolchain"][tool_name]:
-                    return _failed(
+                    return _signing_failed(
                         "EVIDENCE_TOOLCHAIN_MISMATCH",
                         f"{artifact_id} {evidence_name} was produced by an unapproved tool.",
                         checks,
@@ -471,7 +504,7 @@ def evaluate_release(
                 provenance["source_commit"] != source["commit"],
             )
         ):
-            return _failed(
+            return _signing_failed(
                 "PROVENANCE_EXPECTATION_MISMATCH",
                 f"{artifact_id} provenance does not match trusted build expectations.",
                 checks,
@@ -485,7 +518,7 @@ def evaluate_release(
             trusted_artifact_signer is None
             or artifact_signature["identity"] != expected_signer_identity
         ):
-            return _failed(
+            return _signing_failed(
                 "ARTIFACT_SIGNER_UNTRUSTED",
                 f"{artifact_id} signature identity is not trusted by release policy.",
                 checks,
@@ -497,14 +530,14 @@ def evaluate_release(
         critical_count = sum(item["severity"] == "critical" for item in findings)
         high_count = sum(item["severity"] == "high" for item in findings)
         if critical_count != scan["critical_findings"] or high_count != scan["high_findings"]:
-            return _failed(
+            return _signing_failed(
                 "SCAN_COUNT_MISMATCH",
                 f"{artifact_id} scan counts do not match its finding inventory.",
                 checks,
                 claimed_manifest_digest,
             )
         if critical_count > policy["vulnerability_policy"]["max_critical"]:
-            return _failed(
+            return _signing_failed(
                 "CRITICAL_FINDING",
                 f"{artifact_id} contains a critical finding; critical findings are never waivable.",
                 checks,
@@ -512,7 +545,7 @@ def evaluate_release(
             )
         scan_completed_at = _parse_time(scan["completed_at"])
         if scan_completed_at > manifest_created_at or scan_completed_at > now:
-            return _failed(
+            return _signing_failed(
                 "SCAN_TIME_INVALID",
                 f"{artifact_id} scan completion is after the manifest or current time.",
                 checks,
@@ -522,7 +555,7 @@ def evaluate_release(
         for finding in findings:
             key = (artifact_id, finding["id"])
             if key in all_findings:
-                return _failed(
+                return _signing_failed(
                     "DUPLICATE_FINDING",
                     "Finding identifiers must be unique within an artifact.",
                     checks,
@@ -537,7 +570,7 @@ def evaluate_release(
     waiver_policy = policy["waiver_policy"]
     for waiver in manifest["waivers"]:
         if waiver["waiver_id"] in waiver_ids:
-            return _failed(
+            return _signing_failed(
                 "DUPLICATE_WAIVER",
                 "Waiver identifiers must be unique within a release.",
                 checks,
@@ -547,21 +580,21 @@ def evaluate_release(
         key = (waiver["artifact_id"], waiver["finding_id"])
         finding = all_findings.get(key)
         if finding is None or finding["severity"] != waiver["severity"]:
-            return _failed(
+            return _signing_failed(
                 "WAIVER_SCOPE_INVALID",
                 "A waiver references a missing or mismatched artifact finding.",
                 checks,
                 claimed_manifest_digest,
             )
         if waiver["severity"] not in waiver_policy["allowed_severities"]:
-            return _failed(
+            return _signing_failed(
                 "WAIVER_SEVERITY_DENIED",
                 "The finding severity is not eligible for waiver.",
                 checks,
                 claimed_manifest_digest,
             )
         if waiver["approved_by_role"] not in waiver_policy["approver_roles"]:
-            return _failed(
+            return _signing_failed(
                 "WAIVER_APPROVER_INVALID",
                 "The waiver approver role is not authorized.",
                 checks,
@@ -570,14 +603,14 @@ def evaluate_release(
         approved_at = _parse_time(waiver["approved_at"])
         expires_at = _parse_time(waiver["expires_at"])
         if approved_at > now:
-            return _failed(
+            return _signing_failed(
                 "WAIVER_TIME_INVALID",
                 "A release waiver cannot be approved in the future.",
                 checks,
                 claimed_manifest_digest,
             )
         if expires_at <= now:
-            return _failed(
+            return _signing_failed(
                 "WAIVER_EXPIRED",
                 "A release waiver is expired.",
                 checks,
@@ -586,14 +619,14 @@ def evaluate_release(
         if expires_at <= approved_at or expires_at - approved_at > timedelta(
             days=waiver_policy["max_validity_days"]
         ):
-            return _failed(
+            return _signing_failed(
                 "WAIVER_WINDOW_INVALID",
                 "A waiver has an invalid or overlong approval window.",
                 checks,
                 claimed_manifest_digest,
             )
         if key in waiver_index:
-            return _failed(
+            return _signing_failed(
                 "DUPLICATE_WAIVER",
                 "Only one active waiver may apply to an artifact finding.",
                 checks,
@@ -604,7 +637,7 @@ def evaluate_release(
     for key, finding in all_findings.items():
         if finding["severity"] == "high":
             if finding["status"] != "waived" or key not in waiver_index:
-                return _failed(
+                return _signing_failed(
                     "UNWAIVED_HIGH_FINDING",
                     "All high findings require a current, scoped, approved waiver.",
                     checks,
@@ -612,18 +645,17 @@ def evaluate_release(
                 )
     checks.append(_passed("vulnerabilities", "no critical or unwaived high findings remain"))
 
-    statement = attestation["statement"]
     predicate = statement["predicate"]
     subject_digest = "sha256:" + statement["subject"][0]["digest"]["sha256"]
     if subject_digest != claimed_manifest_digest:
-        return _failed(
+        return _signing_failed(
             "ATTESTATION_SUBJECT_MISMATCH",
             "Release attestation is bound to a different manifest.",
             checks,
             claimed_manifest_digest,
         )
     if predicate["policy"]["digest"] != computed_policy_digest:
-        return _failed(
+        return _signing_failed(
             "ATTESTATION_POLICY_MISMATCH",
             "Release attestation was evaluated against a different policy.",
             checks,
@@ -635,7 +667,7 @@ def evaluate_release(
         "version": verifier["verifier_version"],
         "digest": verifier["verifier_digest"],
     }:
-        return _failed(
+        return _signing_failed(
             "VERIFIER_MISMATCH",
             "Attestation verifier is not the exact policy-approved verifier.",
             checks,
@@ -643,21 +675,21 @@ def evaluate_release(
         )
     verified_level = max(SLSA_LEVELS[level] for level in predicate["verifiedLevels"])
     if verified_level < SLSA_LEVELS[verifier["minimum_slsa_build_level"]]:
-        return _failed(
+        return _signing_failed(
             "SLSA_LEVEL_INSUFFICIENT",
             "Attestation does not meet the minimum approved SLSA build level.",
             checks,
             claimed_manifest_digest,
         )
     if predicate["artifactSubjects"] != artifact_subjects:
-        return _failed(
+        return _signing_failed(
             "ATTESTATION_ARTIFACT_MISMATCH",
             "Attestation artifact subjects differ from the manifest.",
             checks,
             claimed_manifest_digest,
         )
     if set(predicate["inputAttestations"]) != evidence_digests:
-        return _failed(
+        return _signing_failed(
             "ATTESTATION_EVIDENCE_MISMATCH",
             "Attestation does not cover the exact release evidence set.",
             checks,
@@ -669,42 +701,25 @@ def evaluate_release(
         or verified_at < manifest_created_at
         or (latest_scan_time is not None and verified_at < latest_scan_time)
     ):
-        return _failed(
+        return _signing_failed(
             "ATTESTATION_TIME_INVALID",
             "Attestation time is outside the valid evidence and manifest chronology.",
             checks,
             claimed_manifest_digest,
         )
 
-    signature = attestation["signature"]
+    signature = signer_metadata
     signer = _matching_signer(signature, policy)
     if signer is None or signature["identity"] != expected_signer_identity:
-        return _failed(
+        return _signing_failed(
             "UNTRUSTED_SIGNER",
             "Signature issuer, identity, and key ID are not an exact trusted tuple.",
             checks,
             claimed_manifest_digest,
         )
-    try:
-        signature_valid = _verify_ecdsa_signature(statement, signature, signer)
-    except RuntimeError as exc:
-        return _failed(
-            "VERIFIER_TOOL_UNAVAILABLE",
-            str(exc),
-            checks,
-            claimed_manifest_digest,
-        )
-    if not signature_valid:
-        return _failed(
-            "SIGNATURE_INVALID",
-            "ECDSA signature verification failed.",
-            checks,
-            claimed_manifest_digest,
-        )
-    checks.append(_passed("attestation", "VSA subject, evidence, policy, identity, and signature verified"))
 
     if manifest["promotion"] != {"mode": "copy-by-digest", "rebuild": False}:
-        return _failed(
+        return _signing_failed(
             "PROMOTION_MODE_INVALID",
             "Release promotion must copy the approved digest set without rebuilding.",
             checks,
@@ -712,13 +727,52 @@ def evaluate_release(
         )
     checks.append(_passed("promotion", "promotion and rollback preserve the signed digest set without rebuild"))
 
-    return PolicyDecision(
+    return SigningAdmission(
         True,
-        "RELEASE_POLICY_PASSED",
-        "The signed build-once release is eligible for reviewed promotion.",
+        "SIGNING_INPUTS_ADMITTED",
+        "Unsigned signing inputs are admitted; no release eligibility is established.",
         claimed_manifest_digest,
         tuple(checks),
     )
+
+
+def evaluate_release(
+    manifest: Mapping[str, Any],
+    attestation: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    *,
+    expected_policy_digest: str,
+    evaluated_at: datetime | None = None,
+) -> PolicyDecision:
+    """Full release verification always requires the actual ECDSA signature."""
+    if not isinstance(manifest, Mapping) or manifest.get("schema_version") != "release.v2":
+        return _failed("LEGACY_MANIFEST_DENIED", "Only release.v2 is eligible; older or unversioned records require reviewed migration.", ())
+    # Preserve the full, closed attestation schema and public failure precedence.
+    for document, schema_name, code in (
+        (manifest, "release.v2.schema.json", "RELEASE_SCHEMA_INVALID"),
+        (attestation, "release-attestation.v2.schema.json", "ATTESTATION_SCHEMA_INVALID"),
+        (policy, "release-trust-policy.v1.schema.json", "POLICY_SCHEMA_INVALID"),
+    ):
+        errors = _schema_errors(document, schema_name)
+        if errors:
+            return _failed(code, "; ".join(errors[:5]), ())
+    metadata = {key: value for key, value in attestation["signature"].items() if key != "value"}
+    admission = admit_release_signing_inputs(
+        manifest, attestation["statement"], metadata, policy,
+        expected_policy_digest=expected_policy_digest, evaluated_at=evaluated_at,
+    )
+    if not admission.admitted:
+        return _failed(admission.code, admission.reason, admission.checks, admission.manifest_digest)
+    signature = attestation["signature"]
+    signer = _matching_signer(signature, policy)
+    try:
+        signature_valid = _verify_ecdsa_signature(attestation["statement"], signature, signer)
+    except RuntimeError as exc:
+        return _failed("VERIFIER_TOOL_UNAVAILABLE", str(exc), admission.checks, admission.manifest_digest)
+    if not signature_valid:
+        return _failed("SIGNATURE_INVALID", "ECDSA signature verification failed.", admission.checks, admission.manifest_digest)
+    checks = (*admission.checks, _passed("attestation", "VSA subject, evidence, policy, identity, and signature verified"))
+    return PolicyDecision(True, "RELEASE_POLICY_PASSED", "The signed build-once release is eligible for reviewed promotion.", admission.manifest_digest, checks)
 
 
 def build_deployment_projection(
@@ -729,15 +783,27 @@ def build_deployment_projection(
     target: str,
     expected_policy_digest: str,
     evaluated_at: datetime | None = None,
+    publication_binding: Mapping[str, Any] | None = None,
+    expected_publication_target: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Keep v1 by default; explicitly bind complete destination observations in v2.
+
+    Publication input pins are externally authenticated inputs, not assertions
+    that hashes establish AWS readback or execution authority.
+    """
+    manifest, attestation, policy, publication_binding, expected_publication_target = copy.deepcopy(
+        (manifest, attestation, policy, publication_binding, expected_publication_target))
+    if (publication_binding is None) != (expected_publication_target is None):
+        raise ValueError("publication binding and exact expected target must be supplied together")
     if target not in {"sandbox", "staging", "production"}:
         raise ValueError("target must be sandbox, staging, or production")
+    checked_at = evaluated_at if evaluated_at is not None else datetime.now(UTC)
     decision = evaluate_release(
         manifest,
         attestation,
         policy,
         expected_policy_digest=expected_policy_digest,
-        evaluated_at=evaluated_at,
+        evaluated_at=checked_at,
     )
     if not decision.allowed:
         raise ValueError(f"{decision.code}: {decision.reason}")
@@ -764,10 +830,111 @@ def build_deployment_projection(
         "promotion_mode": "copy-by-digest",
         "rebuild": False,
     }
-    errors = _schema_errors(projection, "release-deployment-projection.v1.schema.json")
+    schema_name = "release-deployment-projection.v1.schema.json"
+    if publication_binding is not None:
+        # Lazy import preserves the publication preparer's use of this gate.
+        from tooling.release_publication import publication_destination_projection
+        projection.update(publication_destination_projection(
+            publication_binding, manifest=manifest, attestation=attestation,
+            expected_policy_digest=expected_policy_digest, expected_target=expected_publication_target,
+            target=target, evaluated_at=checked_at,
+        ))
+        projection["schema_version"] = "release-deployment-projection.v2"
+        schema_name = "release-deployment-projection.v2.schema.json"
+    errors = _schema_errors(projection, schema_name)
     if errors:  # pragma: no cover - defensive invariant
         raise ValueError("invalid generated projection: " + "; ".join(errors))
     return projection
+
+
+def verify_deployment_projection(
+    manifest: Mapping[str, Any], attestation: Mapping[str, Any], policy: Mapping[str, Any],
+    supplied_projection: Mapping[str, Any], *, target: str, expected_policy_digest: str,
+    expected_projection_digest: str | None = None,
+    expected_publication_target: Mapping[str, Any] | None = None,
+    evaluated_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Rebuild a consumer projection; v2 requires its protected outer document pin.
+
+    The document pin uses the deployment-authority JSON digest profile, not the
+    RFC8785 manifest profile. Its provenance belongs to the sealed runtime
+    authority. It must never be derived from the supplied document here.
+    """
+    from tooling.authorize_deployment_backend import canonical_digest as document_digest
+    manifest, attestation, policy, supplied, expected_publication_target = copy.deepcopy(
+        (manifest, attestation, policy, supplied_projection, expected_publication_target))
+    if not isinstance(supplied, Mapping):
+        raise ValueError("release projection must be an object")
+    version = supplied.get("schema_version")
+    if version not in {"release-deployment-projection.v1", "release-deployment-projection.v2"}:
+        raise ValueError("unsupported release projection version")
+    if version == "release-deployment-projection.v2" and (
+        expected_projection_digest is None or expected_publication_target is None
+    ):
+        raise ValueError("publication projection requires an independent outer pin and exact target")
+    if expected_projection_digest is not None and (
+        type(expected_projection_digest) is not str
+        or re.fullmatch(r"sha256:[a-f0-9]{64}", expected_projection_digest) is None
+        or document_digest(supplied) != expected_projection_digest
+    ):
+        raise ValueError("release projection does not match independent outer pin")
+    # Only after the independently pinned container passes may its inner
+    # publication pins become inputs to the readback verifier.
+    arguments = {}
+    if version == "release-deployment-projection.v2":
+        arguments = {"publication_binding": supplied.get("publication_binding"),
+                     "expected_publication_target": expected_publication_target}
+    rebuilt = build_deployment_projection(
+        manifest, attestation, policy, target=target, expected_policy_digest=expected_policy_digest,
+        evaluated_at=evaluated_at, **arguments,
+    )
+    if rebuilt != supplied:
+        raise ValueError("release projection differs from verified reconstruction")
+    return rebuilt
+
+
+def verify_identity_publication_projection(
+    verified_projection: Mapping[str, Any], verified_identity_inputs: Mapping[str, Any],
+) -> None:
+    """Compare two already verified inputs; this is not signature or AWS authority.
+
+    V1 retains its existing identity publication contract. V2 additionally binds
+    both Lambda parameters to the exact versions in the complete readback.
+    Callers must run the signed projection and identity authority verifiers first.
+    """
+    from tooling.authorize_deployment_backend import canonical_digest as document_digest
+
+    projection, inputs = copy.deepcopy((verified_projection, verified_identity_inputs))
+    if isinstance(projection, Mapping) and projection.get("schema_version") == "release-deployment-projection.v1":
+        return
+    try:
+        if _schema_errors(projection, "release-deployment-projection.v2.schema.json"):
+            raise ValueError
+        contract = inputs["release_manifest_contract"]
+        target = projection["publication_binding"]["plan"]["target"]
+        if (
+            contract["schema_version"] != "1"
+            or contract["manifest_digest"] != projection["release_manifest_digest"]
+            or contract["release_version"] != projection["release_version"]
+            or any(contract[field] != target[field] for field in ("customer_id", "deployment_id", "account_id", "region"))
+            or contract["contract_digest"] != inputs["expected_release_manifest_contract_digest"]
+            or contract["contract_digest"] != document_digest({key: value for key, value in contract.items() if key != "contract_digest"})
+        ):
+            raise ValueError
+        for artifact_id, field in (
+            ("identity-pre-token-lambda", "pre_token_artifact"),
+            ("identity-control-processor-lambda", "control_processor_artifact"),
+        ):
+            artifact = projection["runtime_artifacts"][artifact_id]
+            bucket, _, key = artifact["uri"][len("s3://"):].partition("/")
+            expected = {
+                "bucket": bucket, "key": key, "object_version": artifact["version_id"],
+                "sha256_b64": base64.b64encode(bytes.fromhex(artifact["digest"][len("sha256:"):])).decode("ascii"),
+            }
+            if contract[field] != expected:
+                raise ValueError
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise ValueError("identity artifacts differ from verified publication projection") from None
 
 
 def _load_json(path: Path) -> dict[str, Any]:

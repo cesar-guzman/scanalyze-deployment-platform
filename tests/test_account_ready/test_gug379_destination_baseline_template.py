@@ -40,11 +40,12 @@ ROLES = {
     "StateRecoveryRole": "ScanalyzeCustomer-StateRecovery",
 }
 ROLE_POLICIES = {
-    "PlanRole": ["PlanPolicy"],
+    "PlanRole": ["PlanPolicy", "PlanRuntimePolicy"],
     "ApplyRole": [
         "ApplyStateContractPolicy",
         "ApplyFoundationPolicy",
         "ApplyDeliveryPolicy",
+        "ApplyRuntimePolicy",
     ],
     "IdentityPlanRole": ["IdentityPlanPolicy"],
     "IdentityApplyRole": [
@@ -57,7 +58,7 @@ ROLE_POLICIES = {
     "StateRecoveryRole": ["StateRecoveryPolicy"],
 }
 ROLE_BOUNDARIES = {
-    "PlanRole": "PlanPolicy",
+    "PlanRole": "PlanBoundary",
     "ApplyRole": "ApplyBoundary",
     "IdentityPlanRole": "IdentityPlanPolicy",
     "IdentityApplyRole": "IdentityApplyBoundary",
@@ -243,6 +244,17 @@ def _role_statements(
 
 def _normalize_policy_value(value: Any) -> Any:
     if isinstance(value, dict):
+        if set(value) == {"Fn::Sub"} and isinstance(value["Fn::Sub"], list):
+            source, bindings = value["Fn::Sub"]
+            if "DocumentsBucket" in bindings:
+                assert value["Fn::Sub"] == [
+                    "arn:${AWS::Partition}:s3:::${DocumentsBucket}",
+                    {"DocumentsBucket": {"Fn::FindInMap": ["DeploymentDocumentBuckets", {"Ref": "DeploymentId"}, "Name"]}},
+                ]
+                return "arn:${aws_partition}:s3:::${documents_bucket_name}"
+            assert bindings == {"DeploymentPrefix": {"Fn::FindInMap": ["DeploymentNames", {"Ref": "DeploymentId"}, "SanitizedDeploymentId"]}}
+            assert source.startswith("arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/")
+            return _normalize_policy_value({"Fn::Sub": source.replace("${DeploymentPrefix}", "${sanitized_deployment_id}")})
         if set(value) == {"Fn::Sub"} and isinstance(value["Fn::Sub"], str):
             rendered = value["Fn::Sub"]
             replacements = (
@@ -325,6 +337,19 @@ def _without_quota_only_trust_fields(statement: dict[str, Any]) -> dict[str, Any
 
 def _render_for_iam_quota(value: Any) -> Any:
     if isinstance(value, dict):
+        if set(value) == {"Fn::Sub"} and isinstance(value["Fn::Sub"], list):
+            rendered = _normalize_policy_value(value)
+            prefix = MAX_QUOTA_VALUES["DeploymentId"].replace("_", "-").lower()
+            for key, replacement in {
+                "aws_partition": MAX_QUOTA_VALUES["AWS::Partition"],
+                "region": MAX_QUOTA_VALUES["AWS::Region"],
+                "account_id": MAX_QUOTA_VALUES["AWS::AccountId"],
+                "documents_bucket_name": prefix + "-documents",
+                "sanitized_deployment_id": prefix,
+            }.items():
+                rendered = rendered.replace("${" + key + "}", replacement)
+            assert "${" not in rendered
+            return rendered
         if set(value) == {"Ref"}:
             return MAX_QUOTA_VALUES.get(value["Ref"], value["Ref"])
         if set(value) == {"Fn::Sub"} and isinstance(value["Fn::Sub"], str):
@@ -550,7 +575,7 @@ def test_companion_has_exact_roles_policies_boundaries_and_outputs(
     assert set(companion["Parameters"]) == CHILD_PARAMETERS
     resources = companion["Resources"]
     assert Counter(resource["Type"] for resource in resources.values()) == {
-        "AWS::IAM::ManagedPolicy": 13,
+        "AWS::IAM::ManagedPolicy": 16,
         "AWS::IAM::Role": 8,
     }
     assert set(companion["Outputs"]) == {f"{name}Arn" for name in ROLES}
@@ -649,33 +674,44 @@ def test_apply_boundaries_cover_fixture_resources_and_preserve_baseline(
                         for boundary_statement in boundary_allows
                     ), f"{boundary_name} blocks {statement['Sid']} {action} {resource}"
 
-        boundary_denies = {
-            statement["Sid"]: statement
-            for statement in _statements(boundary)
+        # Generic Apply's exact explicit denies live in its mandatory identity
+        # policy; they still override both current and future Allow policies.
+        deny_document = (
+            _normalize_policy_value(_policy_document(companion, "ApplyRuntimePolicy"))
+            if role_name == "ApplyRole" else boundary
+        )
+        boundary_denies = [
+            statement
+            for statement in _statements(deny_document)
             if statement["Effect"] == "Deny"
-        }
-        assert set(boundary_denies) == {
-            "DenyBaselineBucketMutation",
-            "DenyBaselineKeyMutation",
-            "DenyEvidencePublication",
-            "DenyPlanObjectMutation",
-        }
+        ]
+        assert len(boundary_denies) == 4
+
+        def deny_for(action: str) -> dict[str, Any]:
+            matches = [
+                statement for statement in boundary_denies
+                if action in _items(statement["Action"])
+            ]
+            assert len(matches) == 1
+            return matches[0]
+
+        bucket_deny = deny_for("s3:PutBucket*")
         assert set(
-            _items(boundary_denies["DenyBaselineBucketMutation"]["Action"])
+            _items(bucket_deny["Action"])
         ) == {
             "s3:DeleteBucket*",
             "s3:PutBucket*",
             "s3:PutEncryptionConfiguration",
         }
         assert set(
-            _items(boundary_denies["DenyBaselineBucketMutation"]["Resource"])
+            _items(bucket_deny["Resource"])
         ) == {
             "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
             "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan",
             "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence",
             "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts",
         }
-        plan_object_deny = boundary_denies["DenyPlanObjectMutation"]
+        plan_object_deny = deny_for("s3:DeleteObject*")
         assert set(_items(plan_object_deny["Action"])) == {
             "s3:DeleteObject*",
             "s3:GetObject",
@@ -685,10 +721,10 @@ def test_apply_boundaries_cover_fixture_resources_and_preserve_baseline(
             "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan/*"
         ]
         assert {"kms:CreateGrant", "kms:TagResource"} <= set(
-            _items(boundary_denies["DenyBaselineKeyMutation"]["Action"])
+            _items(deny_for("kms:CreateGrant")["Action"])
         )
         evidence_deny = _normalize_policy_value(
-            boundary_denies["DenyEvidencePublication"]
+            deny_for("kms:GenerateDataKey*")
         )
         assert set(_items(evidence_deny["Action"])) == {
             "kms:Encrypt",
@@ -805,7 +841,7 @@ def test_validation_promotion_shared_release_and_saved_plan_boundaries(
         assert "-tf-state/plan-execution/" not in plan["Resource"]
 
 
-def test_generic_apply_cannot_create_persistent_iam_or_touch_foreign_kms(
+def test_generic_apply_cannot_create_roles_edit_boundaries_or_touch_foreign_kms(
     companion: dict[str, Any]
 ) -> None:
     statements = {
@@ -824,7 +860,6 @@ def test_generic_apply_cannot_create_persistent_iam_or_touch_foreign_kms(
         "iam:CreatePolicyVersion",
         "iam:CreateRole",
         "iam:DetachRolePolicy",
-        "iam:PutRolePolicy",
         "iam:UpdateAssumeRolePolicy",
         "kms:CreateKey",
         "kms:PutKeyPolicy",

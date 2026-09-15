@@ -2,8 +2,13 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: Scanalyze content-addressed terminal-role companion for the ACCOUNT_READY v2 destination
   baseline.
 Metadata:
-  Scanalyze: {Contract: account-ready/v2-terminal-roles, PolicyBundleSha256: 'sha256:9277138911e4354b727552f7637d784ee448fbcba7494aa02e5ce40a97bec140',
+  Scanalyze: {Contract: account-ready/v2-terminal-roles, PolicyBundleSha256: 'sha256:bf35688fba5f1526da15284853b186f6db9972bc67011039baa03b8a236f218f',
     Ownership: external-account-baseline}
+Mappings:
+  DeploymentNames:
+    UNBOUND: {SanitizedDeploymentId: producer-required}
+  DeploymentDocumentBuckets:
+    UNBOUND: {Name: producer-required}
 Parameters:
   CustomerId: {Type: String, AllowedPattern: '^cust_[0-9A-HJKMNP-TV-Z]{26}$'}
   DeploymentId: {Type: String, AllowedPattern: '^dep_[0-9A-HJKMNP-TV-Z]{26}$'}
@@ -27,123 +32,531 @@ Resources:
   PlanPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub 'ScanalyzeCustomer-Plan-${DeploymentId}'
+      ManagedPolicyName:
+        Fn::Sub: ScanalyzeCustomer-Plan-${DeploymentId}
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
         - Sid: ListRegionalState
           Effect: Allow
-          Action: ['s3:ListBucket', 's3:ListBucketVersions']
-          Resource: !Sub '${StateBucketArn}'
+          Action:
+          - s3:ListBucket
+          - s3:ListBucketVersions
+          Resource:
+            Fn::Sub: ${StateBucketArn}
           Condition:
             StringEquals:
               aws:PrincipalTag/operation: plan
-              aws:PrincipalTag/layer: [network, platform, data-foundation, cicd, services, edge-identity,
-                addons]
+              aws:PrincipalTag/layer:
+              - network
+              - platform
+              - data-foundation
+              - cicd
+              - services
+              - edge-identity
+              - addons
             StringLike:
-              s3:prefix: [!Sub '${DeploymentId}/${AWS::Region}/${!aws:PrincipalTag/layer}/terraform.tfstate',
-                !Sub '${DeploymentId}/${AWS::Region}/${!aws:PrincipalTag/layer}/terraform.tfstate.tflock']
+              s3:prefix:
+              - Fn::Sub: ${DeploymentId}/${AWS::Region}/${!aws:PrincipalTag/layer}/terraform.tfstate
+              - Fn::Sub: ${DeploymentId}/${AWS::Region}/${!aws:PrincipalTag/layer}/terraform.tfstate.tflock
         - Sid: ReadRegionalState
           Effect: Allow
-          Action: ['s3:GetObject', 's3:GetObjectVersion']
-          Resource: !Sub '${StateBucketArn}/${DeploymentId}/${AWS::Region}/${!aws:PrincipalTag/layer}/terraform.tfstate'
+          Action:
+          - s3:GetObject
+          - s3:GetObjectVersion
+          Resource:
+            Fn::Sub: ${StateBucketArn}/${DeploymentId}/${AWS::Region}/${!aws:PrincipalTag/layer}/terraform.tfstate
           Condition:
             StringEquals:
               aws:PrincipalTag/operation: plan
-              aws:PrincipalTag/layer: [network, platform, data-foundation, cicd, services, edge-identity,
-                addons]
+              aws:PrincipalTag/layer:
+              - network
+              - platform
+              - data-foundation
+              - cicd
+              - services
+              - edge-identity
+              - addons
         - Sid: ManageRegionalLockfile
           Effect: Allow
-          Action: ['s3:DeleteObject', 's3:GetObject', 's3:PutObject']
-          Resource: !Sub '${StateBucketArn}/${DeploymentId}/${AWS::Region}/${!aws:PrincipalTag/layer}/terraform.tfstate.tflock'
+          Action:
+          - s3:DeleteObject
+          - s3:GetObject
+          - s3:PutObject
+          Resource:
+            Fn::Sub: ${StateBucketArn}/${DeploymentId}/${AWS::Region}/${!aws:PrincipalTag/layer}/terraform.tfstate.tflock
           Condition:
             StringEquals:
               aws:PrincipalTag/operation: plan
-              aws:PrincipalTag/layer: [network, platform, data-foundation, cicd, services, edge-identity,
-                addons]
+              aws:PrincipalTag/layer:
+              - network
+              - platform
+              - data-foundation
+              - cicd
+              - services
+              - edge-identity
+              - addons
         - Sid: ListGlobalState
           Effect: Allow
-          Action: ['s3:ListBucket', 's3:ListBucketVersions']
-          Resource: !Sub '${StateBucketArn}'
+          Action:
+          - s3:ListBucket
+          - s3:ListBucketVersions
+          Resource:
+            Fn::Sub: ${StateBucketArn}
           Condition:
             StringEquals:
               aws:PrincipalTag/operation: plan
-              aws:PrincipalTag/layer: [global, edge]
+              aws:PrincipalTag/layer:
+              - global
+              - edge
             StringLike:
-              s3:prefix: [!Sub '${DeploymentId}/${!aws:PrincipalTag/layer}/terraform.tfstate', !Sub '${DeploymentId}/${!aws:PrincipalTag/layer}/terraform.tfstate.tflock']
+              s3:prefix:
+              - Fn::Sub: ${DeploymentId}/${!aws:PrincipalTag/layer}/terraform.tfstate
+              - Fn::Sub: ${DeploymentId}/${!aws:PrincipalTag/layer}/terraform.tfstate.tflock
         - Sid: ReadGlobalState
           Effect: Allow
-          Action: ['s3:GetObject', 's3:GetObjectVersion']
-          Resource: !Sub '${StateBucketArn}/${DeploymentId}/${!aws:PrincipalTag/layer}/terraform.tfstate'
+          Action:
+          - s3:GetObject
+          - s3:GetObjectVersion
+          Resource:
+            Fn::Sub: ${StateBucketArn}/${DeploymentId}/${!aws:PrincipalTag/layer}/terraform.tfstate
           Condition:
             StringEquals:
               aws:PrincipalTag/operation: plan
-              aws:PrincipalTag/layer: [global, edge]
+              aws:PrincipalTag/layer:
+              - global
+              - edge
         - Sid: ManageGlobalLockfile
           Effect: Allow
-          Action: ['s3:DeleteObject', 's3:GetObject', 's3:PutObject']
-          Resource: !Sub '${StateBucketArn}/${DeploymentId}/${!aws:PrincipalTag/layer}/terraform.tfstate.tflock'
+          Action:
+          - s3:DeleteObject
+          - s3:GetObject
+          - s3:PutObject
+          Resource:
+            Fn::Sub: ${StateBucketArn}/${DeploymentId}/${!aws:PrincipalTag/layer}/terraform.tfstate.tflock
           Condition:
             StringEquals:
               aws:PrincipalTag/operation: plan
-              aws:PrincipalTag/layer: [global, edge]
+              aws:PrincipalTag/layer:
+              - global
+              - edge
         - Sid: WriteOwnSavedPlan
           Effect: Allow
-          Action: ['s3:GetObject', 's3:PutObject']
-          Resource: !Sub '${PlanBucketArn}/plan-execution/${DeploymentId}/${!aws:PrincipalTag/change_id}/${!aws:PrincipalTag/layer}/plan.tfplan'
+          Action:
+          - s3:GetObject
+          - s3:PutObject
+          Resource:
+            Fn::Sub: ${PlanBucketArn}/plan-execution/${DeploymentId}/${!aws:PrincipalTag/change_id}/${!aws:PrincipalTag/layer}/plan.tfplan
           Condition:
-            StringEquals: {'aws:PrincipalTag/operation': plan}
+            StringEquals:
+              aws:PrincipalTag/operation: plan
         - Sid: ReadContracts
           Effect: Allow
-          Action: ['s3:GetObject', 's3:GetObjectVersion']
-          Resource: !Sub '${ContractsBucketArn}/${DeploymentId}/*'
+          Action:
+          - s3:GetObject
+          - s3:GetObjectVersion
+          Resource:
+            Fn::Sub: ${ContractsBucketArn}/${DeploymentId}/*
           Condition:
-            StringEquals: {'aws:PrincipalTag/operation': plan}
+            StringEquals:
+              aws:PrincipalTag/operation: plan
         - Sid: ReadContractParameters
           Effect: Allow
-          Action: ['ssm:GetParameter', 'ssm:GetParameters', 'ssm:GetParametersByPath']
-          Resource: [!Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${DeploymentId}/*',
-            !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/scanalyze/deployments/${DeploymentId}/contracts/*']
+          Action:
+          - ssm:GetParameter
+          - ssm:GetParameters
+          - ssm:GetParametersByPath
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${DeploymentId}/*
+          - Fn::Sub: arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/scanalyze/deployments/${DeploymentId}/contracts/*
           Condition:
-            StringEquals: {'aws:PrincipalTag/operation': plan}
+            StringEquals:
+              aws:PrincipalTag/operation: plan
         - Sid: ReadTerraformManagedInfrastructure
           Effect: Allow
-          Action: ['acm:DescribeCertificate', 'acm:ListTagsForCertificate', 'apigateway:GET', 'cloudfront:Get*',
-            'cloudfront:ListTagsForResource', 'cloudwatch:Describe*', 'cloudwatch:GetDashboard', 'cloudwatch:GetMetric*',
-            'cloudwatch:ListMetrics', 'cloudwatch:ListTagsForResource', 'codebuild:BatchGetProjects',
-            'codebuild:ListProjects', 'codecommit:GetRepository', 'codecommit:ListTagsForResource', 'codepipeline:GetPipeline',
-            'codepipeline:GetPipelineState', 'codepipeline:ListTagsForResource', 'dynamodb:Describe*',
-            'dynamodb:ListTagsOfResource', 'ec2:Describe*', 'ecr:Describe*', 'ecr:GetLifecyclePolicy',
-            'ecr:GetRepositoryPolicy', 'ecr:ListTagsForResource', 'ecs:Describe*', 'ecs:List*', 'elasticloadbalancing:Describe*',
-            'iam:Get*', 'iam:List*', 'kms:Describe*', 'kms:GetKeyPolicy', 'kms:GetKeyRotationStatus',
-            'kms:List*', 'logs:Describe*', 'logs:ListTagsForResource', 'route53:Get*', 'route53:List*',
-            's3:GetBucket*', 's3:ListAllMyBuckets', 's3:ListBucket', 'sns:GetTopicAttributes', 'sns:ListTagsForResource',
-            'sqs:GetQueue*', 'sqs:ListQueueTags', 'sqs:ListQueues', 'wafv2:Get*', 'wafv2:List*', 'sts:GetCallerIdentity']
+          Action:
+          - acm:DescribeCertificate
+          - acm:ListTagsForCertificate
+          - apigateway:GET
+          - cloudfront:Get*
+          - cloudfront:ListTagsForResource
+          - cloudwatch:Describe*
+          - cloudwatch:GetDashboard
+          - cloudwatch:GetMetric*
+          - cloudwatch:ListMetrics
+          - cloudwatch:ListTagsForResource
+          - codebuild:BatchGetProjects
+          - codebuild:ListProjects
+          - codecommit:GetRepository
+          - codecommit:ListTagsForResource
+          - codepipeline:GetPipeline
+          - codepipeline:GetPipelineState
+          - codepipeline:ListTagsForResource
+          - dynamodb:Describe*
+          - dynamodb:ListTagsOfResource
+          - ec2:Describe*
+          - ecr:Describe*
+          - ecr:GetLifecyclePolicy
+          - ecr:GetRepositoryPolicy
+          - ecr:ListTagsForResource
+          - ecs:Describe*
+          - ecs:List*
+          - elasticloadbalancing:Describe*
+          - iam:Get*
+          - iam:List*
+          - kms:Describe*
+          - kms:GetKeyPolicy
+          - kms:GetKeyRotationStatus
+          - kms:List*
+          - logs:Describe*
+          - logs:ListTagsForResource
+          - route53:Get*
+          - route53:List*
+          - s3:GetBucket*
+          - s3:ListAllMyBuckets
+          - s3:ListBucket
+          - sns:GetTopicAttributes
+          - sns:ListTagsForResource
+          - sqs:GetQueue*
+          - sqs:ListQueueTags
+          - sqs:ListQueues
+          - wafv2:Get*
+          - wafv2:List*
+          - sts:GetCallerIdentity
           Resource: '*'
           Condition:
             StringEquals:
-              aws:PrincipalTag/deployment_id: !Sub '${DeploymentId}'
+              aws:PrincipalTag/deployment_id:
+                Fn::Sub: ${DeploymentId}
               aws:PrincipalTag/operation: plan
-              aws:PrincipalTag/layer: [global, network, platform, data-foundation, cicd, services, edge-identity,
-                edge, addons]
+              aws:PrincipalTag/layer:
+              - global
+              - network
+              - platform
+              - data-foundation
+              - cicd
+              - services
+              - edge-identity
+              - edge
+              - addons
         - Sid: UsePlanBaselineKeys
           Effect: Allow
-          Action: ['kms:Decrypt', 'kms:DescribeKey', 'kms:Encrypt', 'kms:GenerateDataKey']
-          Resource: [!Sub '${StateKmsKeyArn}', !Sub '${ContractsKmsKeyArn}']
-          Condition:
-            StringEquals: {'aws:PrincipalTag/operation': plan}
-        - Sid: EncryptExactSavedPlan
-          Effect: Allow
-          Action: ['kms:Decrypt', 'kms:Encrypt', 'kms:GenerateDataKey']
-          Resource: !Sub '${EvidenceKmsKeyArn}'
+          Action:
+          - kms:Decrypt
+          - kms:DescribeKey
+          - kms:Encrypt
+          - kms:GenerateDataKey
+          Resource:
+          - Fn::Sub: ${StateKmsKeyArn}
+          - Fn::Sub: ${ContractsKmsKeyArn}
           Condition:
             StringEquals:
               aws:PrincipalTag/operation: plan
-              aws:PrincipalTag/layer: [global, network, platform, data-foundation, cicd, services, edge-identity,
-                edge, addons]
-              kms:ViaService: !Sub 's3.${AWS::Region}.${AWS::URLSuffix}'
-              kms:EncryptionContext:aws:s3:arn: !Sub '${PlanBucketArn}'
-        - {Sid: DenyTerminalRoleChaining, Effect: Deny, Action: 'sts:AssumeRole', Resource: '*'}
+        - Sid: EncryptExactSavedPlan
+          Effect: Allow
+          Action:
+          - kms:Decrypt
+          - kms:Encrypt
+          - kms:GenerateDataKey
+          Resource:
+            Fn::Sub: ${EvidenceKmsKeyArn}
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer:
+              - global
+              - network
+              - platform
+              - data-foundation
+              - cicd
+              - services
+              - edge-identity
+              - edge
+              - addons
+              kms:ViaService:
+                Fn::Sub: s3.${AWS::Region}.${AWS::URLSuffix}
+              kms:EncryptionContext:aws:s3:arn:
+                Fn::Sub: ${PlanBucketArn}
+        - Sid: DenyTerminalRoleChaining
+          Effect: Deny
+          Action: sts:AssumeRole
+          Resource: '*'
+  PlanRuntimePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName:
+        Fn::Sub: ScanalyzeCustomer-PlanRuntime-${DeploymentId}
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: ReadDeploymentRuntimeParameters
+          Effect: Allow
+          Action:
+          - ssm:GetParameter
+          - ssm:GetParameters
+          - ssm:GetParametersByPath
+          - ssm:ListTagsForResource
+          Resource:
+            Fn::Sub: arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/scanalyze/deployments/${DeploymentId}/runtime/*
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/deployment_id:
+                Fn::Sub: ${DeploymentId}
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer: data-foundation
+  PlanBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName:
+        Fn::Sub: ScanalyzeCustomer-PlanBoundary-${DeploymentId}
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Action:
+          - s3:ListBucket
+          - s3:ListBucketVersions
+          Resource:
+            Fn::Sub: ${StateBucketArn}
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer:
+              - network
+              - platform
+              - data-foundation
+              - cicd
+              - services
+              - edge-identity
+              - addons
+            StringLike:
+              s3:prefix:
+              - Fn::Sub: ${DeploymentId}/${AWS::Region}/${!aws:PrincipalTag/layer}/terraform.tfstate
+              - Fn::Sub: ${DeploymentId}/${AWS::Region}/${!aws:PrincipalTag/layer}/terraform.tfstate.tflock
+        - Effect: Allow
+          Action:
+          - s3:GetObject
+          - s3:GetObjectVersion
+          Resource:
+            Fn::Sub: ${StateBucketArn}/${DeploymentId}/${AWS::Region}/${!aws:PrincipalTag/layer}/terraform.tfstate
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer:
+              - network
+              - platform
+              - data-foundation
+              - cicd
+              - services
+              - edge-identity
+              - addons
+        - Effect: Allow
+          Action:
+          - s3:DeleteObject
+          - s3:GetObject
+          - s3:PutObject
+          Resource:
+            Fn::Sub: ${StateBucketArn}/${DeploymentId}/${AWS::Region}/${!aws:PrincipalTag/layer}/terraform.tfstate.tflock
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer:
+              - network
+              - platform
+              - data-foundation
+              - cicd
+              - services
+              - edge-identity
+              - addons
+        - Effect: Allow
+          Action:
+          - s3:ListBucket
+          - s3:ListBucketVersions
+          Resource:
+            Fn::Sub: ${StateBucketArn}
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer:
+              - global
+              - edge
+            StringLike:
+              s3:prefix:
+              - Fn::Sub: ${DeploymentId}/${!aws:PrincipalTag/layer}/terraform.tfstate
+              - Fn::Sub: ${DeploymentId}/${!aws:PrincipalTag/layer}/terraform.tfstate.tflock
+        - Effect: Allow
+          Action:
+          - s3:GetObject
+          - s3:GetObjectVersion
+          Resource:
+            Fn::Sub: ${StateBucketArn}/${DeploymentId}/${!aws:PrincipalTag/layer}/terraform.tfstate
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer:
+              - global
+              - edge
+        - Effect: Allow
+          Action:
+          - s3:DeleteObject
+          - s3:GetObject
+          - s3:PutObject
+          Resource:
+            Fn::Sub: ${StateBucketArn}/${DeploymentId}/${!aws:PrincipalTag/layer}/terraform.tfstate.tflock
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer:
+              - global
+              - edge
+        - Effect: Allow
+          Action:
+          - s3:GetObject
+          - s3:PutObject
+          Resource:
+            Fn::Sub: ${PlanBucketArn}/plan-execution/${DeploymentId}/${!aws:PrincipalTag/change_id}/${!aws:PrincipalTag/layer}/plan.tfplan
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+        - Effect: Allow
+          Action:
+          - s3:GetObject
+          - s3:GetObjectVersion
+          Resource:
+            Fn::Sub: ${ContractsBucketArn}/${DeploymentId}/*
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+        - Effect: Allow
+          Action:
+          - ssm:GetParameter
+          - ssm:GetParameters
+          - ssm:GetParametersByPath
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${DeploymentId}/*
+          - Fn::Sub: arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/scanalyze/deployments/${DeploymentId}/contracts/*
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+        - Effect: Allow
+          Action:
+          - acm:DescribeCertificate
+          - acm:ListTagsForCertificate
+          - apigateway:GET
+          - cloudfront:Get*
+          - cloudfront:ListTagsForResource
+          - cloudwatch:Describe*
+          - cloudwatch:GetDashboard
+          - cloudwatch:GetMetric*
+          - cloudwatch:ListMetrics
+          - cloudwatch:ListTagsForResource
+          - codebuild:BatchGetProjects
+          - codebuild:ListProjects
+          - codecommit:GetRepository
+          - codecommit:ListTagsForResource
+          - codepipeline:GetPipeline
+          - codepipeline:GetPipelineState
+          - codepipeline:ListTagsForResource
+          - dynamodb:Describe*
+          - dynamodb:ListTagsOfResource
+          - ec2:Describe*
+          - ecr:Describe*
+          - ecr:GetLifecyclePolicy
+          - ecr:GetRepositoryPolicy
+          - ecr:ListTagsForResource
+          - ecs:Describe*
+          - ecs:List*
+          - elasticloadbalancing:Describe*
+          - iam:Get*
+          - iam:List*
+          - kms:Describe*
+          - kms:GetKeyPolicy
+          - kms:GetKeyRotationStatus
+          - kms:List*
+          - logs:Describe*
+          - logs:ListTagsForResource
+          - route53:Get*
+          - route53:List*
+          - s3:GetBucket*
+          - s3:ListAllMyBuckets
+          - s3:ListBucket
+          - sns:GetTopicAttributes
+          - sns:ListTagsForResource
+          - sqs:GetQueue*
+          - sqs:ListQueueTags
+          - sqs:ListQueues
+          - wafv2:Get*
+          - wafv2:List*
+          - sts:GetCallerIdentity
+          Resource: '*'
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/deployment_id:
+                Fn::Sub: ${DeploymentId}
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer:
+              - global
+              - network
+              - platform
+              - data-foundation
+              - cicd
+              - services
+              - edge-identity
+              - edge
+              - addons
+        - Effect: Allow
+          Action:
+          - kms:Decrypt
+          - kms:DescribeKey
+          - kms:Encrypt
+          - kms:GenerateDataKey
+          Resource:
+          - Fn::Sub: ${StateKmsKeyArn}
+          - Fn::Sub: ${ContractsKmsKeyArn}
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+        - Effect: Allow
+          Action:
+          - kms:Decrypt
+          - kms:Encrypt
+          - kms:GenerateDataKey
+          Resource:
+            Fn::Sub: ${EvidenceKmsKeyArn}
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer:
+              - global
+              - network
+              - platform
+              - data-foundation
+              - cicd
+              - services
+              - edge-identity
+              - edge
+              - addons
+              kms:ViaService:
+                Fn::Sub: s3.${AWS::Region}.${AWS::URLSuffix}
+              kms:EncryptionContext:aws:s3:arn:
+                Fn::Sub: ${PlanBucketArn}
+        - Effect: Deny
+          Action: sts:AssumeRole
+          Resource: '*'
+        - Effect: Allow
+          Action:
+          - ssm:GetParameter
+          - ssm:GetParameters
+          - ssm:GetParametersByPath
+          - ssm:ListTagsForResource
+          Resource:
+            Fn::Sub: arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/scanalyze/deployments/${DeploymentId}/runtime/*
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/deployment_id:
+                Fn::Sub: ${DeploymentId}
+              aws:PrincipalTag/operation: plan
+              aws:PrincipalTag/layer: data-foundation
   IdentityPlanPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
@@ -227,7 +640,28 @@ Resources:
           Effect: Allow
           Action: ['ecr:BatchCheckLayerAvailability', 'ecr:BatchGetImage', 'ecr:CompleteLayerUpload',
             'ecr:GetDownloadUrlForLayer', 'ecr:InitiateLayerUpload', 'ecr:PutImage', 'ecr:UploadLayerPart']
-          Resource: !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/scanalyze/*'
+          Resource:
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-ingest-api'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-ocr-worker'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-classifier-worker'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-bank-worker'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-personal-worker'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-gov-worker'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-postprocess-worker'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
           Condition:
             StringEquals: {'aws:PrincipalTag/operation': promote, 'aws:PrincipalTag/layer': artifact-publication}
         - Sid: GetEcrAuthorizationToken
@@ -238,10 +672,17 @@ Resources:
             StringEquals: {'aws:PrincipalTag/operation': promote, 'aws:PrincipalTag/layer': artifact-publication}
         - Sid: PublishFrontendRelease
           Effect: Allow
-          Action: ['s3:GetObject', 's3:ListBucket', 's3:PutObject']
-          Resource: [!Sub 'arn:${AWS::Partition}:s3:::scanalyze-${AWS::AccountId}-frontend', !Sub 'arn:${AWS::Partition}:s3:::scanalyze-${AWS::AccountId}-frontend/releases/${DeploymentId}/*']
+          Action: ['s3:GetObject', 's3:PutObject']
+          Resource: !Sub 'arn:${AWS::Partition}:s3:::scanalyze-${AWS::AccountId}-frontend/releases/${DeploymentId}/*'
           Condition:
             StringEquals: {'aws:PrincipalTag/operation': promote, 'aws:PrincipalTag/layer': artifact-publication}
+        - Sid: ListFrontendRelease
+          Effect: Allow
+          Action: s3:ListBucket
+          Resource: !Sub 'arn:${AWS::Partition}:s3:::scanalyze-${AWS::AccountId}-frontend'
+          Condition:
+            StringEquals: {'aws:PrincipalTag/operation': promote, 'aws:PrincipalTag/layer': artifact-publication}
+            StringLike: {'s3:prefix': !Sub 'releases/${DeploymentId}/*'}
         - Sid: InvalidateExactDistribution
           Effect: Allow
           Action: ['cloudfront:CreateInvalidation', 'cloudfront:GetInvalidation']
@@ -303,7 +744,28 @@ Resources:
         - Sid: ReadValidationArtifacts
           Effect: Allow
           Action: ['ecr:BatchCheckLayerAvailability', 'ecr:BatchGetImage', 'ecr:DescribeImages', 'ecr:GetDownloadUrlForLayer']
-          Resource: !Sub 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/scanalyze/*'
+          Resource:
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-ingest-api'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-ocr-worker'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-classifier-worker'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-bank-worker'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-personal-worker'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-gov-worker'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
+          - !Sub
+            - 'arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${DeploymentPrefix}/scanalyze-postprocess-worker'
+            - DeploymentPrefix: !FindInMap [DeploymentNames, !Ref 'DeploymentId', SanitizedDeploymentId]
           Condition:
             StringEquals: {'aws:PrincipalTag/operation': validate, 'aws:PrincipalTag/layer': artifact-publication}
         - Sid: GetValidationEcrAuthorizationToken
@@ -594,7 +1056,7 @@ Resources:
         - Sid: ManageDataFoundationLayer
           Effect: Allow
           Action: ['dynamodb:CreateTable', 'dynamodb:TagResource', 'dynamodb:UntagResource', 'dynamodb:UpdateContinuousBackups',
-            'dynamodb:UpdateTable', 'dynamodb:UpdateTimeToLive', 's3:CreateBucket', 's3:PutBucketLifecycleConfiguration', 's3:PutBucketPublicAccessBlock',
+            'dynamodb:UpdateTable', 'dynamodb:UpdateTimeToLive', 's3:CreateBucket', 's3:PutLifecycleConfiguration', 's3:PutBucketPublicAccessBlock',
             's3:PutBucketTagging', 's3:PutBucketVersioning', 's3:PutEncryptionConfiguration', 'sqs:CreateQueue',
             'sqs:SetQueueAttributes', 'sqs:TagQueue', 'sqs:UntagQueue']
           Resource: '*'
@@ -647,6 +1109,12 @@ Resources:
           Resource: !Sub 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/${DeploymentId}-data'
           Condition:
             StringEquals: {'aws:PrincipalTag/operation': apply, 'aws:PrincipalTag/layer': data-foundation}
+        - Sid: ManageServicesLogGroups
+          Effect: Allow
+          Action: ['logs:CreateLogGroup', 'logs:PutRetentionPolicy', 'logs:TagResource', 'logs:UntagResource']
+          Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${DeploymentId}/*'
+          Condition:
+            StringEquals: {'aws:PrincipalTag/operation': apply, 'aws:PrincipalTag/layer': services, 'aws:PrincipalTag/deployment_id': !Sub '${DeploymentId}'}
   ApplyDeliveryPolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
@@ -661,7 +1129,7 @@ Resources:
             'codepipeline:TagResource', 'codepipeline:UpdatePipeline', 'ecr:CreateRepository', 'ecr:PutLifecyclePolicy',
             'ecr:PutImageScanningConfiguration', 'ecr:PutImageTagMutability', 'ecr:SetRepositoryPolicy',
             'ecr:TagResource', 'logs:CreateLogGroup', 'logs:PutRetentionPolicy', 'logs:TagResource',
-            's3:CreateBucket', 's3:PutBucketLifecycleConfiguration', 's3:PutBucketPublicAccessBlock',
+            's3:CreateBucket', 's3:PutLifecycleConfiguration', 's3:PutBucketPublicAccessBlock',
             's3:PutBucketTagging', 's3:PutBucketVersioning', 's3:PutEncryptionConfiguration']
           Resource: '*'
           Condition:
@@ -743,8 +1211,8 @@ Resources:
             StringEquals: {'aws:PrincipalTag/operation': apply, 'aws:PrincipalTag/layer': edge}
         - Sid: ManageAddonsLayer
           Effect: Allow
-          Action: ['cloudwatch:PutDashboard', 'cloudwatch:PutMetricAlarm', 'cloudwatch:TagResource', 'logs:CreateLogGroup',
-            'logs:PutRetentionPolicy', 'logs:TagResource', 'sns:CreateTopic', 'sns:SetTopicAttributes',
+          Action: ['cloudwatch:PutDashboard', 'cloudwatch:PutMetricAlarm', 'cloudwatch:TagResource',
+            'sns:CreateTopic', 'sns:SetTopicAttributes',
             'sns:TagResource']
           Resource: '*'
           Condition:
@@ -764,6 +1232,138 @@ Resources:
           Action: ['account:*', 'aws-portal:*', 'billing:*', 'budgets:*', 'ce:*', 'cur:*', 'iam:CreateAccessKey',
             'iam:CreateUser', 'iam:DeleteUser', 'iam:UpdateLoginProfile', 'organizations:*', 'sts:AssumeRole']
           Resource: '*'
+  ApplyRuntimePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName:
+        Fn::Sub: ScanalyzeCustomer-ApplyRuntime-${DeploymentId}
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Sid: ManageDeploymentRuntimeParameters
+          Effect: Allow
+          Action:
+          - ssm:GetParameter
+          - ssm:GetParameters
+          - ssm:GetParametersByPath
+          - ssm:ListTagsForResource
+          - ssm:PutParameter
+          - ssm:AddTagsToResource
+          - ssm:RemoveTagsFromResource
+          Resource:
+            Fn::Sub: arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/scanalyze/deployments/${DeploymentId}/runtime/*
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/deployment_id:
+                Fn::Sub: ${DeploymentId}
+              aws:PrincipalTag/operation: apply
+              aws:PrincipalTag/layer: data-foundation
+        - Sid: ManageExactWorkloadRuntimePolicies
+          Effect: Allow
+          Action:
+          - iam:PutRolePolicy
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-ingest-api
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-ocr-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-classifier-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-bank-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-personal-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-gov-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-postprocess-worker
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/deployment_id:
+                Fn::Sub: ${DeploymentId}
+              aws:PrincipalTag/operation: apply
+              aws:PrincipalTag/layer: data-foundation
+              aws:ResourceTag/deployment_id:
+                Fn::Sub: ${DeploymentId}
+              aws:ResourceTag/layer: global
+              aws:ResourceTag/purpose: workload-task-role
+            ArnEquals:
+              iam:PermissionsBoundary:
+                Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:policy/${DeploymentId}-workload-boundary
+        - Sid: PassExactEcsWorkloads
+          Effect: Allow
+          Action: iam:PassRole
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-ingest-api
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-ocr-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-classifier-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-bank-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-personal-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-gov-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-postprocess-worker
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/deployment_id:
+                Fn::Sub: ${DeploymentId}
+              aws:PrincipalTag/operation: apply
+              aws:PrincipalTag/layer: services
+              iam:PassedToService:
+                Fn::Sub: ecs-tasks.${AWS::URLSuffix}
+        - Sid: ManageExactDocumentUploadCors
+          Effect: Allow
+          Action: s3:PutBucketCORS
+          Resource:
+            Fn::Sub:
+            - arn:${AWS::Partition}:s3:::${DocumentsBucket}
+            - DocumentsBucket:
+                Fn::FindInMap:
+                - DeploymentDocumentBuckets
+                - Ref: DeploymentId
+                - Name
+          Condition:
+            StringEquals:
+              aws:PrincipalTag/deployment_id:
+                Fn::Sub: ${DeploymentId}
+              aws:PrincipalTag/operation: apply
+              aws:PrincipalTag/layer: data-foundation
+        - Sid: DenyBaselineBucketMutation
+          Effect: Deny
+          Action:
+          - s3:DeleteBucket*
+          - s3:PutBucket*
+          - s3:PutEncryptionConfiguration
+          Resource:
+          - Fn::Sub: ${StateBucketArn}
+          - Fn::Sub: ${PlanBucketArn}
+          - Fn::Sub: ${EvidenceBucketArn}
+          - Fn::Sub: ${ContractsBucketArn}
+        - Sid: DenyPlanObjectMutation
+          Effect: Deny
+          Action:
+          - s3:DeleteObject*
+          - s3:GetObject
+          - s3:PutObject*
+          Resource:
+            Fn::Sub: ${PlanBucketArn}/*
+        - Sid: DenyBaselineKeyMutation
+          Effect: Deny
+          Action:
+          - kms:CreateGrant
+          - kms:DisableKey
+          - kms:DisableKeyRotation
+          - kms:PutKeyPolicy
+          - kms:ScheduleKeyDeletion
+          - kms:TagResource
+          - kms:UpdateAlias
+          Resource:
+          - Fn::Sub: ${StateKmsKeyArn}
+          - Fn::Sub: ${EvidenceKmsKeyArn}
+          - Fn::Sub: ${ContractsKmsKeyArn}
+          - Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/scanalyze/${AWS::AccountId}/tf-state
+          - Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/scanalyze/${AWS::AccountId}/tf-evidence
+          - Fn::Sub: arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/scanalyze/${AWS::AccountId}/contracts
+        - Sid: DenyEvidencePublication
+          Effect: Deny
+          Action:
+          - kms:Encrypt
+          - kms:GenerateDataKey*
+          - s3:PutObject
+          Resource:
+          - Fn::Sub: ${EvidenceKmsKeyArn}
+          - Fn::Sub: ${EvidenceBucketArn}/*
   IdentityApplyCorePolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
@@ -954,82 +1554,215 @@ Resources:
   ApplyBoundary:
     Type: AWS::IAM::ManagedPolicy
     Properties:
-      ManagedPolicyName: !Sub 'ScanalyzeCustomer-ApplyBoundary-${DeploymentId}'
+      ManagedPolicyName:
+        Fn::Sub: ScanalyzeCustomer-ApplyBoundary-${DeploymentId}
       PolicyDocument:
         Version: '2012-10-17'
         Statement:
-        - Sid: AllowActions
-          Effect: Allow
-          Action: ['acm:AddTagsToCertificate', 'acm:DescribeCertificate', 'acm:ListTagsForCertificate',
-            'acm:RequestCertificate', 'apigateway:DELETE', 'apigateway:GET', 'apigateway:PATCH', 'apigateway:POST',
-            'apigateway:PUT', 'cloudfront:CreateCachePolicy', 'cloudfront:CreateDistribution', 'cloudfront:CreateFunction',
-            'cloudfront:CreateOriginAccessControl', 'cloudfront:CreateResponseHeadersPolicy', 'cloudfront:Get*',
-            'cloudfront:ListTagsForResource', 'cloudfront:PublishFunction', 'cloudfront:TagResource',
-            'cloudfront:UpdateCachePolicy', 'cloudfront:UpdateDistribution', 'cloudfront:UpdateFunction',
-            'cloudfront:UpdateOriginAccessControl', 'cloudfront:UpdateResponseHeadersPolicy', 'cloudwatch:Describe*',
-            'cloudwatch:GetDashboard', 'cloudwatch:GetMetric*', 'cloudwatch:ListMetrics', 'cloudwatch:ListTagsForResource',
-            'cloudwatch:PutDashboard', 'cloudwatch:PutMetricAlarm', 'cloudwatch:TagResource', 'codebuild:BatchGetProjects',
-            'codebuild:CreateProject', 'codebuild:ListProjects', 'codebuild:UpdateProject', 'codecommit:CreateRepository',
-            'codecommit:GetRepository', 'codecommit:ListTagsForResource', 'codecommit:TagResource', 'codecommit:UpdateRepositoryDescription',
-            'codepipeline:CreatePipeline', 'codepipeline:GetPipeline', 'codepipeline:GetPipelineState',
-            'codepipeline:ListTagsForResource', 'codepipeline:TagResource', 'codepipeline:UpdatePipeline',
-            'dynamodb:CreateTable', 'dynamodb:Describe*', 'dynamodb:ListTagsOfResource', 'dynamodb:TagResource',
-            'dynamodb:UntagResource', 'dynamodb:UpdateContinuousBackups', 'dynamodb:UpdateTable', 'dynamodb:UpdateTimeToLive',
-            'ec2:AllocateAddress', 'ec2:AssociateRouteTable', 'ec2:AttachInternetGateway', 'ec2:AuthorizeSecurityGroupEgress',
-            'ec2:AuthorizeSecurityGroupIngress', 'ec2:CreateInternetGateway', 'ec2:CreateNatGateway',
-            'ec2:CreateRoute', 'ec2:CreateRouteTable', 'ec2:CreateSecurityGroup', 'ec2:CreateSubnet',
-            'ec2:CreateTags', 'ec2:CreateVpc', 'ec2:CreateVpcEndpoint', 'ec2:Describe*', 'ec2:ModifySubnetAttribute',
-            'ec2:ModifyVpcAttribute', 'ec2:ModifyVpcEndpoint', 'ec2:ReplaceRoute', 'ec2:ReplaceRouteTableAssociation',
-            'ec2:RevokeSecurityGroupEgress', 'ec2:RevokeSecurityGroupIngress', 'ecr:CreateRepository',
-            'ecr:Describe*', 'ecr:GetLifecyclePolicy', 'ecr:GetRepositoryPolicy', 'ecr:ListTagsForResource',
-            'ecr:PutImageScanningConfiguration', 'ecr:PutImageTagMutability', 'ecr:PutLifecyclePolicy',
-            'ecr:SetRepositoryPolicy', 'ecr:TagResource', 'ecs:CreateCluster', 'ecs:CreateService', 'ecs:Describe*',
-            'ecs:List*', 'ecs:PutClusterCapacityProviders', 'ecs:RegisterTaskDefinition', 'ecs:TagResource',
-            'ecs:UpdateCluster', 'ecs:UpdateService', 'elasticloadbalancing:*Rule', 'elasticloadbalancing:AddTags',
-            'elasticloadbalancing:CreateListener', 'elasticloadbalancing:CreateLoadBalancer', 'elasticloadbalancing:CreateTargetGroup',
-            'elasticloadbalancing:Describe*', 'elasticloadbalancing:ModifyListener', 'elasticloadbalancing:ModifyLoadBalancerAttributes',
-            'elasticloadbalancing:ModifyTargetGroup', 'elasticloadbalancing:ModifyTargetGroupAttributes',
-            'iam:Get*', 'iam:List*', 'kms:CreateAlias', 'kms:CreateGrant', 'kms:Decrypt',
-            'kms:Describe*', 'kms:EnableKeyRotation', 'kms:Encrypt', 'kms:GenerateDataKey',
-            'kms:GetKeyPolicy', 'kms:GetKeyRotationStatus', 'kms:List*', 'kms:TagResource',
-            'kms:UpdateAlias', 'logs:CreateLogGroup', 'logs:Describe*', 'logs:ListTagsForResource', 'logs:PutRetentionPolicy',
-            'logs:TagResource', 'route53:ChangeResourceRecordSets', 'route53:Get*', 'route53:List*', 's3:CreateBucket',
-            's3:DeleteObject', 's3:GetBucket*', 's3:GetObject', 's3:GetObjectVersion', 's3:ListAllMyBuckets',
-            's3:ListBucket', 's3:ListBucketVersions', 's3:PutBucketLifecycleConfiguration', 's3:PutBucketPublicAccessBlock', 's3:PutBucketTagging',
-            's3:PutBucketVersioning', 's3:PutEncryptionConfiguration', 's3:PutObject', 'sns:CreateTopic',
-            'sns:GetTopicAttributes', 'sns:ListTagsForResource', 'sns:SetTopicAttributes', 'sns:TagResource',
-            'sqs:CreateQueue', 'sqs:GetQueue*', 'sqs:ListQueueTags', 'sqs:ListQueues', 'sqs:SetQueueAttributes',
-            'sqs:TagQueue', 'sqs:UntagQueue', 'ssm:AddTagsToResource', 'ssm:GetParameter', 'ssm:GetParameters',
-            'ssm:GetParametersByPath', 'ssm:ListTagsForResource', 'ssm:PutParameter', 'sts:GetCallerIdentity', 'wafv2:CreateWebACL',
-            'wafv2:Get*', 'wafv2:List*', 'wafv2:TagResource', 'wafv2:UpdateWebACL']
+        - Effect: Allow
+          Action:
+          - acm:AddTagsToCertificate
+          - acm:DescribeCertificate
+          - acm:ListTagsForCertificate
+          - acm:RequestCertificate
+          - apigateway:DELETE
+          - apigateway:GET
+          - apigateway:PATCH
+          - apigateway:POST
+          - apigateway:PUT
+          - cloudfront:CreateCachePolicy
+          - cloudfront:CreateDistribution
+          - cloudfront:CreateFunction
+          - cloudfront:CreateOriginAccessControl
+          - cloudfront:CreateResponseHeadersPolicy
+          - cloudfront:Get*
+          - cloudfront:ListTagsForResource
+          - cloudfront:PublishFunction
+          - cloudfront:TagResource
+          - cloudfront:UpdateCachePolicy
+          - cloudfront:UpdateDistribution
+          - cloudfront:UpdateFunction
+          - cloudfront:UpdateOriginAccessControl
+          - cloudfront:UpdateResponseHeadersPolicy
+          - cloudwatch:Describe*
+          - cloudwatch:GetDashboard
+          - cloudwatch:GetMetric*
+          - cloudwatch:ListMetrics
+          - cloudwatch:ListTagsForResource
+          - cloudwatch:PutDashboard
+          - cloudwatch:PutMetricAlarm
+          - cloudwatch:TagResource
+          - codebuild:BatchGetProjects
+          - codebuild:CreateProject
+          - codebuild:ListProjects
+          - codebuild:UpdateProject
+          - codecommit:CreateRepository
+          - codecommit:GetRepository
+          - codecommit:ListTagsForResource
+          - codecommit:TagResource
+          - codecommit:UpdateRepositoryDescription
+          - codepipeline:CreatePipeline
+          - codepipeline:GetPipeline
+          - codepipeline:GetPipelineState
+          - codepipeline:ListTagsForResource
+          - codepipeline:TagResource
+          - codepipeline:UpdatePipeline
+          - dynamodb:CreateTable
+          - dynamodb:Describe*
+          - dynamodb:ListTagsOfResource
+          - dynamodb:TagResource
+          - dynamodb:UntagResource
+          - dynamodb:UpdateContinuousBackups
+          - dynamodb:UpdateTable
+          - dynamodb:UpdateTimeToLive
+          - ec2:AllocateAddress
+          - ec2:AssociateRouteTable
+          - ec2:AttachInternetGateway
+          - ec2:AuthorizeSecurityGroupEgress
+          - ec2:AuthorizeSecurityGroupIngress
+          - ec2:CreateInternetGateway
+          - ec2:CreateNatGateway
+          - ec2:CreateRoute
+          - ec2:CreateRouteTable
+          - ec2:CreateSecurityGroup
+          - ec2:CreateSubnet
+          - ec2:CreateTags
+          - ec2:CreateVpc
+          - ec2:CreateVpcEndpoint
+          - ec2:Describe*
+          - ec2:ModifySubnetAttribute
+          - ec2:ModifyVpcAttribute
+          - ec2:ModifyVpcEndpoint
+          - ec2:ReplaceRoute
+          - ec2:ReplaceRouteTableAssociation
+          - ec2:RevokeSecurityGroupEgress
+          - ec2:RevokeSecurityGroupIngress
+          - ecr:CreateRepository
+          - ecr:Describe*
+          - ecr:GetLifecyclePolicy
+          - ecr:GetRepositoryPolicy
+          - ecr:ListTagsForResource
+          - ecr:PutImageScanningConfiguration
+          - ecr:PutImageTagMutability
+          - ecr:PutLifecyclePolicy
+          - ecr:SetRepositoryPolicy
+          - ecr:TagResource
+          - ecs:CreateCluster
+          - ecs:CreateService
+          - ecs:Describe*
+          - ecs:List*
+          - ecs:PutClusterCapacityProviders
+          - ecs:RegisterTaskDefinition
+          - ecs:TagResource
+          - ecs:UpdateCluster
+          - ecs:UpdateService
+          - elasticloadbalancing:*Rule
+          - elasticloadbalancing:AddTags
+          - elasticloadbalancing:CreateListener
+          - elasticloadbalancing:CreateLoadBalancer
+          - elasticloadbalancing:CreateTargetGroup
+          - elasticloadbalancing:Describe*
+          - elasticloadbalancing:ModifyListener
+          - elasticloadbalancing:ModifyLoadBalancerAttributes
+          - elasticloadbalancing:ModifyTargetGroup
+          - elasticloadbalancing:ModifyTargetGroupAttributes
+          - iam:Get*
+          - iam:List*
+          - kms:CreateAlias
+          - kms:CreateGrant
+          - kms:Decrypt
+          - kms:Describe*
+          - kms:EnableKeyRotation
+          - kms:Encrypt
+          - kms:GenerateDataKey
+          - kms:GetKeyPolicy
+          - kms:GetKeyRotationStatus
+          - kms:List*
+          - kms:TagResource
+          - kms:UpdateAlias
+          - logs:CreateLogGroup
+          - logs:Describe*
+          - logs:ListTagsForResource
+          - logs:PutRetentionPolicy
+          - logs:TagResource
+          - route53:ChangeResourceRecordSets
+          - route53:Get*
+          - route53:List*
+          - s3:CreateBucket
+          - s3:DeleteObject
+          - s3:GetBucket*
+          - s3:GetObject
+          - s3:GetObjectVersion
+          - s3:ListAllMyBuckets
+          - s3:ListBucket
+          - s3:ListBucketVersions
+          - s3:PutLifecycleConfiguration
+          - s3:PutBucketPublicAccessBlock
+          - s3:PutBucketTagging
+          - s3:PutBucketVersioning
+          - s3:PutEncryptionConfiguration
+          - s3:PutObject
+          - sns:CreateTopic
+          - sns:GetTopicAttributes
+          - sns:ListTagsForResource
+          - sns:SetTopicAttributes
+          - sns:TagResource
+          - sqs:CreateQueue
+          - sqs:GetQueue*
+          - sqs:ListQueueTags
+          - sqs:ListQueues
+          - sqs:SetQueueAttributes
+          - sqs:TagQueue
+          - sqs:UntagQueue
+          - ssm:AddTagsToResource
+          - ssm:GetParameter
+          - ssm:GetParameters
+          - ssm:GetParametersByPath
+          - ssm:ListTagsForResource
+          - ssm:PutParameter
+          - sts:GetCallerIdentity
+          - wafv2:CreateWebACL
+          - wafv2:Get*
+          - wafv2:List*
+          - wafv2:TagResource
+          - wafv2:UpdateWebACL
           Resource: '*'
-        - Sid: AllowPassRole
-          Effect: Allow
+        - Effect: Allow
           Action: iam:PassRole
-          Resource: [!Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-codebuild-role',
-            !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-codepipeline-role',
-            !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-ecs-task-execution']
-        - Sid: DenyBaselineBucketMutation
-          Effect: Deny
-          Action: ['s3:DeleteBucket*', 's3:PutBucket*', 's3:PutEncryptionConfiguration']
-          Resource: [!Sub '${StateBucketArn}', !Sub '${PlanBucketArn}', !Sub '${EvidenceBucketArn}',
-            !Sub '${ContractsBucketArn}']
-        - Sid: DenyPlanObjectMutation
-          Effect: Deny
-          Action: ['s3:DeleteObject*', 's3:GetObject', 's3:PutObject*']
-          Resource: !Sub '${PlanBucketArn}/*'
-        - Sid: DenyBaselineKeyMutation
-          Effect: Deny
-          Action: ['kms:CreateGrant', 'kms:DisableKey', 'kms:DisableKeyRotation', 'kms:PutKeyPolicy',
-            'kms:ScheduleKeyDeletion', 'kms:TagResource', 'kms:UpdateAlias']
-          Resource: [!Sub '${StateKmsKeyArn}', !Sub '${EvidenceKmsKeyArn}', !Sub '${ContractsKmsKeyArn}',
-            !Sub 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/scanalyze/${AWS::AccountId}/tf-state',
-            !Sub 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/scanalyze/${AWS::AccountId}/tf-evidence',
-            !Sub 'arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:alias/scanalyze/${AWS::AccountId}/contracts']
-        - Sid: DenyEvidencePublication
-          Effect: Deny
-          Action: ['kms:Encrypt', 'kms:GenerateDataKey*', 's3:PutObject']
-          Resource: [!Sub '${EvidenceKmsKeyArn}', !Sub '${EvidenceBucketArn}/*']
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-codebuild-role
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-codepipeline-role
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-ecs-task-execution
+        - Effect: Allow
+          Action: logs:UntagResource
+          Resource:
+            Fn::Sub: arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${DeploymentId}/*
+        - Effect: Allow
+          Action:
+          - iam:PutRolePolicy
+          - iam:PassRole
+          Resource:
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-ingest-api
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-ocr-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-classifier-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-bank-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-personal-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-gov-worker
+          - Fn::Sub: arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${DeploymentId}-workload-postprocess-worker
+        - Effect: Allow
+          Action: s3:PutBucketCORS
+          Resource:
+            Fn::Sub:
+            - arn:${AWS::Partition}:s3:::${DocumentsBucket}
+            - DocumentsBucket:
+                Fn::FindInMap:
+                - DeploymentDocumentBuckets
+                - Ref: DeploymentId
+                - Name
+        - Effect: Allow
+          Action: ssm:RemoveTagsFromResource
+          Resource:
+            Fn::Sub: arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/scanalyze/deployments/${DeploymentId}/runtime/*
   IdentityApplyBoundary:
     Type: AWS::IAM::ManagedPolicy
     Properties:
@@ -1098,7 +1831,7 @@ Resources:
     Properties:
       RoleName: ScanalyzeCustomer-Plan
       MaxSessionDuration: 3600
-      PermissionsBoundary: !Ref 'PlanPolicy'
+      PermissionsBoundary: !Ref 'PlanBoundary'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -1138,7 +1871,7 @@ Resources:
           Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${SharedServicesAccountId}:role/ScanalyzeOrchestrator-${DeploymentId}'}
           Condition:
             StringLike: {'sts:SourceIdentity': exec_*}
-      ManagedPolicyArns: [!Ref 'PlanPolicy']
+      ManagedPolicyArns: [!Ref 'PlanPolicy', !Ref 'PlanRuntimePolicy']
       Tags:
       - {Key: customer_id, Value: !Ref 'CustomerId'}
       - {Key: deployment_id, Value: !Ref 'DeploymentId'}
@@ -1190,7 +1923,7 @@ Resources:
           Principal: {AWS: !Sub 'arn:${AWS::Partition}:iam::${SharedServicesAccountId}:role/ScanalyzeOrchestrator-${DeploymentId}'}
           Condition:
             StringLike: {'sts:SourceIdentity': exec_*}
-      ManagedPolicyArns: [!Ref 'ApplyStateContractPolicy', !Ref 'ApplyFoundationPolicy', !Ref 'ApplyDeliveryPolicy']
+      ManagedPolicyArns: [!Ref 'ApplyStateContractPolicy', !Ref 'ApplyFoundationPolicy', !Ref 'ApplyDeliveryPolicy', !Ref 'ApplyRuntimePolicy']
       Tags:
       - {Key: customer_id, Value: !Ref 'CustomerId'}
       - {Key: deployment_id, Value: !Ref 'DeploymentId'}

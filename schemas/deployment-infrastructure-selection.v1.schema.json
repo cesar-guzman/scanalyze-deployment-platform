@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/deployment-infrastructure-selection.v1.schema.json",
+  "title": "Deployment Infrastructure Selection v1",
+  "description": "Closed selection of existing AWS infrastructure resources for production deployment.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "partition",
+    "layer",
+    "target_digest",
+    "release_digest",
+    "selections"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "record_type": {
+      "const": "deployment_infrastructure_selection"
+    },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "account_id": {
+      "type": "string",
+      "pattern": "^(?!000000000000$)[0-9]{12}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "environment": {
+      "enum": [
+        "sandbox",
+        "dev",
+        "staging",
+        "production"
+      ]
+    },
+    "partition": {
+      "enum": [
+        "aws",
+        "aws-cn",
+        "aws-us-gov"
+      ]
+    },
+    "layer": {
+      "enum": [
+        "platform",
+        "edge",
+        "edge-identity"
+      ]
+    },
+    "target_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "release_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "selections": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "internal_certificate_arn": {
+          "type": "object",
+          "required": [
+            "arn",
+            "target_layer",
+            "description"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "arn": {
+              "type": "string",
+              "pattern": "^arn:(aws|aws-cn|aws-us-gov):acm:[a-z]{2}(?:-[a-z]+)+-[0-9]+:(?!000000000000$)[0-9]{12}:certificate/[a-f0-9-]{36}$"
+            },
+            "target_layer": {
+              "const": "platform"
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        },
+        "api_access_log_group_arn": {
+          "type": "object",
+          "required": [
+            "arn",
+            "target_layer",
+            "description"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "arn": {
+              "type": "string",
+              "pattern": "^arn:(aws|aws-cn|aws-us-gov):logs:[a-z]{2}(?:-[a-z]+)+-[0-9]+:(?!000000000000$)[0-9]{12}:log-group:[a-zA-Z0-9/_.-]{1,512}$"
+            },
+            "target_layer": {
+              "const": "edge-identity"
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        },
+        "route53_zone_id": {
+          "type": "object",
+          "required": [
+            "zone_id",
+            "target_layer",
+            "description"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "zone_id": {
+              "type": "string",
+              "pattern": "^Z[A-Z0-9]{1,31}$"
+            },
+            "target_layer": {
+              "const": "edge"
+            },
+            "description": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        }
+      }
+    },
+    "record_digest": {
+      "$ref": "#/$defs/digest"
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "schema_version": "identity-publication-receipt.v1",
+  "customer_id": "cust_BBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "deployment_id": "dep_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "account_id": "123456789012",
+  "region": "us-east-1",
+  "environment": "staging",
+  "signed_release_manifest_digest": "sha256:10fcefdd28c76e9561a806b5d4e3c1c8323e8c41f801b41e43c2b0eed4637241",
+  "signed_release_manifest_version": "2.4.0",
+  "cicd_contract_digest": "sha256:5a818a22009224d0bb6dd3a490d787ed0a4461d20a73498228a10753248a6462",
+  "destination_bucket": "dep-aaaaaaaaaaaaaaaaaaaaaaaaaa-cicd-artifacts",
+  "identity_pre_token_lambda_locator": {
+    "bucket": "dep-aaaaaaaaaaaaaaaaaaaaaaaaaa-cicd-artifacts",
+    "key": "deployments/dep_AAAAAAAAAAAAAAAAAAAAAAAAAA/artifacts/pre_token/sha256/0000000000000000000000000000000000000000000000000000000000000008",
+    "object_version": "v1.test",
+    "sha256_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAg="
+  },
+  "identity_control_processor_lambda_locator": {
+    "bucket": "dep-aaaaaaaaaaaaaaaaaaaaaaaaaa-cicd-artifacts",
+    "key": "deployments/dep_AAAAAAAAAAAAAAAAAAAAAAAAAA/artifacts/control_processor/sha256/0000000000000000000000000000000000000000000000000000000000000009",
+    "object_version": "v1.test",
+    "sha256_b64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAk="
+  },
+  "receipt_digest": "sha256:5cdf0976f849db08f00a287b25c0a3bfa3a2dd62413c92140f0439df81aca418"
+}

@@ -3151,6 +3151,12 @@ GUG274_RECEIPT_DOMAIN = (
 GUG274_IDENTITY_PROOF_DOMAIN = (
     "scanalyze.platform-authority.bootstrap.identity-proof.v1"
 )
+GUG274_OWNER_PLAN_DOMAIN = "scanalyze.platform-authority.bootstrap.plan.v3"
+GUG274_OWNER_APPROVAL_DOMAIN = "scanalyze.platform-authority.bootstrap.approval.v3"
+GUG274_OWNER_LEDGER_DOMAIN = "scanalyze.platform-authority.bootstrap.artifact-authority.v2"
+GUG274_OWNER_RECEIPT_DOMAIN = "scanalyze.platform-authority.bootstrap.authority-receipt.v2"
+GUG274_OWNER_PROOF_DOMAIN = "scanalyze.platform-authority.bootstrap.identity-proof.v2"
+GUG274_OWNER_FIELDS = ("authorization_mode", "independent_approval_present", "operator_policy_digest")
 GUG274_KEY_DOMAIN = "scanalyze.platform-authority.bootstrap.authority-key.v1"
 GUG274_INVENTORY_DOMAIN = (
     "scanalyze.platform-authority.bootstrap.resource-inventory.v1"
@@ -3198,8 +3204,28 @@ def _gug274_partition(region: object) -> str | None:
     return "aws"
 
 
+def _validate_gug274_owner_metadata(instance: dict) -> list[str]:
+    """Integrity metadata only; a digest cannot establish policy custody or time.
+
+    Window bounds are deliberately absent from these artifacts. Their expected
+    policy digest and current authorization must come from the bound runtime,
+    never a reconstructed policy or a caller's self-hash.
+    """
+    if (
+        instance.get("authorization_mode") != "single_owner_v1"
+        or instance.get("independent_approval_present") is not False
+        or type(instance.get("operator_policy_digest")) is not str
+        or re.fullmatch(r"sha256:[a-f0-9]{64}", instance["operator_policy_digest"]) is None
+    ):
+        return ["single-owner metadata must name its exact policy and no independent approval"]
+    return []
+
+
 def _validate_gug274_plan(instance: dict) -> list[str]:
     errors: list[str] = []
+    single_owner = instance.get("schema_version") == "3"
+    if single_owner:
+        errors.extend(_validate_gug274_owner_metadata(instance))
     account_id = instance.get("authority_account_id")
     region = instance.get("region")
     partition = _gug274_partition(region)
@@ -3307,9 +3333,9 @@ def _validate_gug274_plan(instance: dict) -> list[str]:
         key: value for key, value in instance.items() if key != "plan_artifact_digest"
     }
     if instance.get("plan_artifact_digest") != _gug274_domain_digest(
-        GUG274_PLAN_DOMAIN, unsigned
+        GUG274_OWNER_PLAN_DOMAIN if single_owner else GUG274_PLAN_DOMAIN, unsigned
     ):
-        errors.append("Plan artifact digest must cover the complete Plan v2")
+        errors.append("Plan artifact digest must cover the complete Plan " + ("v3" if single_owner else "v2"))
     return errors
 
 
@@ -3317,6 +3343,9 @@ def _validate_gug274_approval(
     instance: dict, *, expected_plan: dict | None = None
 ) -> list[str]:
     errors: list[str] = []
+    single_owner = instance.get("schema_version") == "3"
+    if single_owner:
+        errors.extend(_validate_gug274_owner_metadata(instance))
     approved = _gug274_timestamp(instance.get("approved_at"))
     expires = _gug274_timestamp(instance.get("expires_at"))
     plan_created = _gug274_timestamp(instance.get("plan_created_at"))
@@ -3325,8 +3354,13 @@ def _validate_gug274_approval(
         errors.append("Approval timestamps must be canonical UTC instants")
     elif not plan_created <= approved < expires <= plan_expires:
         errors.append("Approval lifetime must be contained by its Plan lifetime")
-    if instance.get("approver_id") == instance.get("initiator_id"):
+    if not single_owner and instance.get("approver_id") == instance.get("initiator_id"):
         errors.append("Approval operator IDs must be distinct")
+    if single_owner and (
+        instance.get("approver_id") != "cesar-guzman"
+        or instance.get("initiator_id") != "cesar-guzman"
+    ):
+        errors.append("single-owner review must name the configured owner for both operations")
     if instance.get("approver_principal_digest") == instance.get(
         "initiator_principal_digest"
     ):
@@ -3355,6 +3389,10 @@ def _validate_gug274_approval(
             "plan_created_at": "created_at",
             "plan_expires_at": "expires_at",
         }
+        if single_owner:
+            cross_fields.update({field: field for field in GUG274_OWNER_FIELDS})
+            if expected_plan.get("schema_version") != "3":
+                errors.append("single-owner review requires a single-owner Plan")
         if any(
             instance.get(approval_field) != expected_plan.get(plan_field)
             for approval_field, plan_field in cross_fields.items()
@@ -3369,30 +3407,35 @@ def _validate_gug274_approval(
         if key != "approval_artifact_digest"
     }
     if instance.get("approval_artifact_digest") != _gug274_domain_digest(
-        GUG274_APPROVAL_DOMAIN, unsigned
+        GUG274_OWNER_APPROVAL_DOMAIN if single_owner else GUG274_APPROVAL_DOMAIN, unsigned
     ):
-        errors.append("Approval artifact digest must cover the complete Approval v2")
+        errors.append("Approval artifact digest must cover the complete Approval " + ("v3" if single_owner else "v2"))
     return errors
 
 
 def _validate_gug274_identity_proof(instance: dict) -> list[str]:
     errors: list[str] = []
+    single_owner = instance.get("schema_version") == "2"
+    if single_owner:
+        errors.extend(_validate_gug274_owner_metadata(instance))
     expected_roles = {
         "plan": "plan_author",
-        "approval": "independent_approver",
+        "approval": "single_owner_review" if single_owner else "independent_approver",
         "apply": "apply_verifier",
     }
     if expected_roles.get(instance.get("operation")) != instance.get("role_kind"):
         errors.append("identity proof role must match its exact operation")
-    if instance.get("expected_user_id_digest") == instance.get(
+    if not single_owner and instance.get("expected_user_id_digest") == instance.get(
         "peer_user_id_digest"
     ):
         errors.append("identity proof users must be distinct")
+    if single_owner and instance.get("peer_user_id_digest") is not None:
+        errors.append("single-owner proof cannot invent a peer identity")
     unsigned = {
         key: value for key, value in instance.items() if key != "proof_receipt_digest"
     }
     if instance.get("proof_receipt_digest") != _gug274_domain_digest(
-        GUG274_IDENTITY_PROOF_DOMAIN, unsigned
+        GUG274_OWNER_PROOF_DOMAIN if single_owner else GUG274_IDENTITY_PROOF_DOMAIN, unsigned
     ):
         errors.append("identity proof digest must cover the complete sanitized proof")
     return errors
@@ -3400,6 +3443,9 @@ def _validate_gug274_identity_proof(instance: dict) -> list[str]:
 
 def _validate_gug274_ledger(instance: dict) -> list[str]:
     errors: list[str] = []
+    single_owner = instance.get("schema_version") == "2"
+    if single_owner:
+        errors.extend(_validate_gug274_owner_metadata(instance))
     plan = instance.get("plan")
     approval = instance.get("approval")
     if isinstance(plan, dict):
@@ -3410,7 +3456,7 @@ def _validate_gug274_ledger(instance: dict) -> list[str]:
             "trust_root_generation",
             "trust_algorithm",
             "authority_record_id",
-        ):
+        ) + (GUG274_OWNER_FIELDS if single_owner else ()):
             if instance.get(field) != plan.get(field):
                 errors.append(f"ledger {field} must match its Plan")
         if instance.get("created_at") != plan.get("created_at"):
@@ -3435,6 +3481,11 @@ def _validate_gug274_ledger(instance: dict) -> list[str]:
     }
     for proof in proofs.values():
         errors.extend(_validate_gug274_identity_proof(proof))
+        if single_owner and (
+            proof.get("schema_version") != "2"
+            or any(proof.get(field) != instance.get(field) for field in GUG274_OWNER_FIELDS)
+        ):
+            errors.append("single-owner ledger proofs must share its exact operator policy")
         if proof.get("identity_binding_digest") != instance.get(
             "identity_binding_digest"
         ):
@@ -3446,11 +3497,12 @@ def _validate_gug274_ledger(instance: dict) -> list[str]:
     if isinstance(plan_proof, dict) and isinstance(approval_proof, dict):
         if (
             approval_proof.get("expected_user_id_digest")
-            != plan_proof.get("peer_user_id_digest")
+            != plan_proof.get("expected_user_id_digest" if single_owner else "peer_user_id_digest")
             or approval_proof.get("peer_user_id_digest")
-            != plan_proof.get("expected_user_id_digest")
+            != (None if single_owner else plan_proof.get("expected_user_id_digest"))
         ):
-            errors.append("Plan and Approval proofs must bind opposite real users")
+            errors.append("single-owner proofs must bind the same real owner without a peer"
+                          if single_owner else "Plan and Approval proofs must bind opposite real users")
         if (
             approval_proof.get("proof_role_arn_digest")
             == plan_proof.get("proof_role_arn_digest")
@@ -3469,7 +3521,8 @@ def _validate_gug274_ledger(instance: dict) -> list[str]:
             or apply_proof.get("peer_user_id_digest")
             != approval_proof.get("peer_user_id_digest")
         ):
-            errors.append("Apply proof must bind the approved second party")
+            errors.append("Apply proof must bind the approved owner"
+                          if single_owner else "Apply proof must bind the approved second party")
         if apply_proof.get("proof_role_arn_digest") in {
             plan_proof.get("proof_role_arn_digest"),
             approval_proof.get("proof_role_arn_digest"),
@@ -3491,21 +3544,23 @@ def _validate_gug274_ledger(instance: dict) -> list[str]:
         key: value for key, value in instance.items() if key != "ledger_digest"
     }
     if instance.get("ledger_digest") != _gug274_domain_digest(
-        GUG274_LEDGER_DOMAIN, unsigned
+        GUG274_OWNER_LEDGER_DOMAIN if single_owner else GUG274_LEDGER_DOMAIN, unsigned
     ):
         errors.append("ledger digest must cover the complete state snapshot")
     return errors
 
 
 def _validate_gug274_authority_receipt(instance: dict) -> list[str]:
+    single_owner = instance.get("schema_version") == "2"
+    errors = _validate_gug274_owner_metadata(instance) if single_owner else []
     unsigned = {
         key: value for key, value in instance.items() if key != "receipt_digest"
     }
     if instance.get("receipt_digest") != _gug274_domain_digest(
-        GUG274_RECEIPT_DOMAIN, unsigned
+        GUG274_OWNER_RECEIPT_DOMAIN if single_owner else GUG274_RECEIPT_DOMAIN, unsigned
     ):
-        return ["authority receipt digest must cover the complete receipt"]
-    return []
+        errors.append("authority receipt digest must cover the complete receipt")
+    return errors
 
 
 GUG274_PACKAGE_PATHS = (
@@ -3992,22 +4047,24 @@ def validate_semantics(
         if customer_value is not None and customer_value == deployment_value:
             errors.append("customer and deployment canonical values must be distinct")
 
-    if schema_name == "platform-authority-bootstrap-plan.v2.schema.json":
+    if schema_name in {"platform-authority-bootstrap-plan.v2.schema.json", "platform-authority-bootstrap-plan.v3.schema.json"}:
         errors.extend(_validate_gug274_plan(instance))
 
-    if schema_name == "platform-authority-bootstrap-approval.v2.schema.json":
+    if schema_name in {"platform-authority-bootstrap-approval.v2.schema.json", "platform-authority-bootstrap-approval.v3.schema.json"}:
         errors.extend(
             _validate_gug274_approval(instance, expected_plan=gug274_plan)
         )
 
-    if schema_name == (
-        "platform-authority-bootstrap-identity-proof-receipt.v1.schema.json"
-    ):
+    if schema_name in {
+        "platform-authority-bootstrap-identity-proof-receipt.v1.schema.json",
+        "platform-authority-bootstrap-identity-proof-receipt.v2.schema.json",
+    }:
         errors.extend(_validate_gug274_identity_proof(instance))
 
-    if schema_name == (
-        "platform-authority-bootstrap-artifact-authority.v1.schema.json"
-    ):
+    if schema_name in {
+        "platform-authority-bootstrap-artifact-authority.v1.schema.json",
+        "platform-authority-bootstrap-artifact-authority.v2.schema.json",
+    }:
         errors.extend(_validate_gug274_ledger(instance))
 
     if schema_name == (
@@ -4032,9 +4089,10 @@ def validate_semantics(
             )
         )
 
-    if schema_name == (
-        "platform-authority-bootstrap-authority-receipt.v1.schema.json"
-    ):
+    if schema_name in {
+        "platform-authority-bootstrap-authority-receipt.v1.schema.json",
+        "platform-authority-bootstrap-authority-receipt.v2.schema.json",
+    }:
         errors.extend(_validate_gug274_authority_receipt(instance))
 
     if schema_name in {
@@ -4526,13 +4584,14 @@ def validate_fixture(fixture_path: Path, schema_path: Path) -> tuple[bool, str]:
                 evaluation_at=evaluation_at,
                 **semantic_context,
             )
-        elif (
-            schema_path.name
-            == "platform-authority-bootstrap-approval.v2.schema.json"
-        ):
+        elif schema_path.name in {
+            "platform-authority-bootstrap-approval.v2.schema.json",
+            "platform-authority-bootstrap-approval.v3.schema.json",
+        }:
             valid_dir = fixture_path.parent.parent / "valid"
+            plan_version = "3" if schema_path.name.endswith(".v3.schema.json") else "2"
             plan = load_json(
-                valid_dir / "platform-authority-bootstrap-plan-v2-synthetic.json"
+                valid_dir / f"platform-authority-bootstrap-plan-v{plan_version}-synthetic.json"
             )
             plan.pop("_test_metadata", None)
             semantic_errors = validate_semantics(

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/deployment-bootstrap-publication-binding.v1.schema.json",
+  "title": "Deployment Bootstrap Publication Binding v1",
+  "description": "Post-publication binding that pairs an already-prepared content digest and exact template hashes with real S3 VersionIds. Does not regenerate content bytes. VersionIds are recorded only after an authorized publisher observes them; this schema does not invent them.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "deployment_id",
+    "content_record_digest",
+    "terminal_template_sha256",
+    "workload_template_sha256",
+    "workload_foundation_digest",
+    "terminal_version_id",
+    "workload_version_id",
+    "binding_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "deployment_bootstrap_publication_binding" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "content_record_digest": { "$ref": "#/$defs/digest" },
+    "terminal_template_sha256": { "$ref": "#/$defs/digest" },
+    "workload_template_sha256": { "$ref": "#/$defs/digest" },
+    "workload_foundation_digest": { "$ref": "#/$defs/digest" },
+    "terminal_version_id": { "type": "string", "pattern": "^[A-Za-z0-9._~+/=-]{1,256}$" },
+    "workload_version_id": { "type": "string", "pattern": "^[A-Za-z0-9._~+/=-]{1,256}$" },
+    "binding_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

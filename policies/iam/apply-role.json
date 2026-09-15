@@ -408,7 +408,7 @@
                 "dynamodb:UpdateTable",
                 "dynamodb:UpdateTimeToLive",
                 "s3:CreateBucket",
-                "s3:PutBucketLifecycleConfiguration",
+                "s3:PutLifecycleConfiguration",
                 "s3:PutBucketPublicAccessBlock",
                 "s3:PutBucketTagging",
                 "s3:PutBucketVersioning",
@@ -539,7 +539,7 @@
                 "logs:PutRetentionPolicy",
                 "logs:TagResource",
                 "s3:CreateBucket",
-                "s3:PutBucketLifecycleConfiguration",
+                "s3:PutLifecycleConfiguration",
                 "s3:PutBucketPublicAccessBlock",
                 "s3:PutBucketTagging",
                 "s3:PutBucketVersioning",
@@ -644,6 +644,24 @@
             }
         },
         {
+            "Sid": "ManageServicesLogGroups",
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:PutRetentionPolicy",
+                "logs:TagResource",
+                "logs:UntagResource"
+            ],
+            "Resource": "arn:${aws_partition}:logs:${region}:${account_id}:log-group:/ecs/${deployment_id}/*",
+            "Condition": {
+                "StringEquals": {
+                    "aws:PrincipalTag/operation": "apply",
+                    "aws:PrincipalTag/layer": "services",
+                    "aws:PrincipalTag/deployment_id": "${deployment_id}"
+                }
+            }
+        },
+        {
             "Sid": "PassEcsExecution",
             "Effect": "Allow",
             "Action": "iam:PassRole",
@@ -730,9 +748,6 @@
                 "cloudwatch:PutDashboard",
                 "cloudwatch:PutMetricAlarm",
                 "cloudwatch:TagResource",
-                "logs:CreateLogGroup",
-                "logs:PutRetentionPolicy",
-                "logs:TagResource",
                 "sns:CreateTopic",
                 "sns:SetTopicAttributes",
                 "sns:TagResource"
@@ -808,6 +823,150 @@
                 "sts:AssumeRole"
             ],
             "Resource": "*"
+        },
+        {
+            "Sid": "ManageDeploymentRuntimeParameters",
+            "Effect": "Allow",
+            "Action": [
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+                "ssm:GetParametersByPath",
+                "ssm:ListTagsForResource",
+                "ssm:PutParameter",
+                "ssm:AddTagsToResource",
+                "ssm:RemoveTagsFromResource"
+            ],
+            "Resource": "arn:${aws_partition}:ssm:${region}:${account_id}:parameter/scanalyze/deployments/${deployment_id}/runtime/*",
+            "Condition": {
+                "StringEquals": {
+                    "aws:PrincipalTag/deployment_id": "${deployment_id}",
+                    "aws:PrincipalTag/operation": "apply",
+                    "aws:PrincipalTag/layer": "data-foundation"
+                }
+            }
+        },
+        {
+            "Sid": "ManageExactWorkloadRuntimePolicies",
+            "Effect": "Allow",
+            "Action": [
+                "iam:PutRolePolicy"
+            ],
+            "Resource": [
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-ingest-api",
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-ocr-worker",
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-classifier-worker",
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-bank-worker",
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-personal-worker",
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-gov-worker",
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-postprocess-worker"
+            ],
+            "Condition": {
+                "StringEquals": {
+                    "aws:PrincipalTag/deployment_id": "${deployment_id}",
+                    "aws:PrincipalTag/operation": "apply",
+                    "aws:PrincipalTag/layer": "data-foundation",
+                    "aws:ResourceTag/deployment_id": "${deployment_id}",
+                    "aws:ResourceTag/layer": "global",
+                    "aws:ResourceTag/purpose": "workload-task-role"
+                },
+                "ArnEquals": {
+                    "iam:PermissionsBoundary": "arn:${aws_partition}:iam::${account_id}:policy/${deployment_id}-workload-boundary"
+                }
+            }
+        },
+        {
+            "Sid": "PassExactEcsWorkloads",
+            "Effect": "Allow",
+            "Action": "iam:PassRole",
+            "Resource": [
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-ingest-api",
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-ocr-worker",
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-classifier-worker",
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-bank-worker",
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-personal-worker",
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-gov-worker",
+                "arn:${aws_partition}:iam::${account_id}:role/${deployment_id}-workload-postprocess-worker"
+            ],
+            "Condition": {
+                "StringEquals": {
+                    "aws:PrincipalTag/deployment_id": "${deployment_id}",
+                    "aws:PrincipalTag/operation": "apply",
+                    "aws:PrincipalTag/layer": "services",
+                    "iam:PassedToService": "ecs-tasks.${aws_url_suffix}"
+                }
+            }
+        },
+        {
+            "Sid": "ManageExactDocumentUploadCors",
+            "Effect": "Allow",
+            "Action": "s3:PutBucketCORS",
+            "Resource": "arn:${aws_partition}:s3:::${documents_bucket_name}",
+            "Condition": {
+                "StringEquals": {
+                    "aws:PrincipalTag/deployment_id": "${deployment_id}",
+                    "aws:PrincipalTag/operation": "apply",
+                    "aws:PrincipalTag/layer": "data-foundation"
+                }
+            }
+        },
+        {
+            "Sid": "DenyBaselineBucketMutation",
+            "Effect": "Deny",
+            "Action": [
+                "s3:DeleteBucket*",
+                "s3:PutBucket*",
+                "s3:PutEncryptionConfiguration"
+            ],
+            "Resource": [
+                "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-state",
+                "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan",
+                "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence",
+                "arn:${aws_partition}:s3:::scanalyze-${account_id}-contracts"
+            ]
+        },
+        {
+            "Sid": "DenyPlanObjectMutation",
+            "Effect": "Deny",
+            "Action": [
+                "s3:DeleteObject*",
+                "s3:GetObject",
+                "s3:PutObject*"
+            ],
+            "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-plan/*"
+        },
+        {
+            "Sid": "DenyBaselineKeyMutation",
+            "Effect": "Deny",
+            "Action": [
+                "kms:CreateGrant",
+                "kms:DisableKey",
+                "kms:DisableKeyRotation",
+                "kms:PutKeyPolicy",
+                "kms:ScheduleKeyDeletion",
+                "kms:TagResource",
+                "kms:UpdateAlias"
+            ],
+            "Resource": [
+                "arn:${aws_partition}:kms:${region}:${account_id}:key/${state_kms_key_id}",
+                "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}",
+                "arn:${aws_partition}:kms:${region}:${account_id}:key/${contracts_kms_key_id}",
+                "arn:${aws_partition}:kms:${region}:${account_id}:alias/scanalyze/${account_id}/tf-state",
+                "arn:${aws_partition}:kms:${region}:${account_id}:alias/scanalyze/${account_id}/tf-evidence",
+                "arn:${aws_partition}:kms:${region}:${account_id}:alias/scanalyze/${account_id}/contracts"
+            ]
+        },
+        {
+            "Sid": "DenyEvidencePublication",
+            "Effect": "Deny",
+            "Action": [
+                "kms:Encrypt",
+                "kms:GenerateDataKey*",
+                "s3:PutObject"
+            ],
+            "Resource": [
+                "arn:${aws_partition}:kms:${region}:${account_id}:key/${evidence_kms_key_id}",
+                "arn:${aws_partition}:s3:::scanalyze-${account_id}-tf-evidence/*"
+            ]
         }
     ]
 }
