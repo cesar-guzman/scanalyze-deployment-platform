@@ -22,7 +22,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 
 ISOLATED_IMPORT_PATHS = tuple(sys.path)
@@ -82,8 +82,10 @@ from tooling.platform_authority_bootstrap import (  # noqa: E402
     PUBLIC_ACCESS_BLOCK,
     BootstrapAuthorizationError,
     BootstrapBinding,
+    SingleOwnerPolicy,
     build_bootstrap_verification,
     change_set_identity_from_arn,
+    canonical_digest,
     require_exact_empty_review_stack,
     render_backend_config,
     render_bootstrap_iam_policy,
@@ -91,6 +93,7 @@ from tooling.platform_authority_bootstrap import (  # noqa: E402
 )
 from tooling.platform_authority_bootstrap_artifact_authority import (  # noqa: E402
     BootstrapArtifactAuthorityClient,
+    BootstrapArtifactAuthorityUncertainError,
     LambdaBootstrapArtifactAuthorityClient,
     authorize_bootstrap_apply_v2,
     build_bootstrap_approval_v2,
@@ -106,6 +109,9 @@ from tooling.platform_authority_bootstrap_artifact_package import (  # noqa: E40
     import_reviewed_aws_sdk,
     resolve_trusted_executable,
     sdk_runtime_root_from_environment,
+)
+from tooling.platform_authority_bootstrap_jwt_grant import (  # noqa: E402
+    JWT_BEARER_GRANT, JwtBearerGrant, operation_binding_digest,
 )
 
 
@@ -208,15 +214,31 @@ def _validate_identity_grant_ready_descriptor(args: argparse.Namespace) -> None:
         raise BootstrapAuthorizationError("identity grant readiness descriptor is unavailable") from None
 
 
-def _signal_identity_grant_ready(args: argparse.Namespace, operation: str) -> None:
+def _signal_identity_grant_ready(
+    args: argparse.Namespace, operation: str,
+    plan: Mapping[str, Any] | None = None,
+    approval: Mapping[str, Any] | None = None,
+) -> None:
     ready = getattr(args, "identity_grant_ready_fd", None)
     if ready is None:
         return
     _validate_identity_grant_ready_descriptor(args)
-    payload = json.dumps({
-        "schema_version": "1", "record_type": "platform_authority_bootstrap_grant_ready",
+    version = getattr(args, "identity_grant_version", "1")
+    document = {
+        "schema_version": version, "record_type": "platform_authority_bootstrap_grant_ready",
         "operation": operation, "pid": os.getpid(),
-    }, sort_keys=True, separators=(",", ":")).encode("ascii")
+    }
+    if version == "2":
+        if plan is None:
+            raise BootstrapAuthorizationError("identity operation artifacts are missing")
+        document["operation_binding_digest"] = operation_binding_digest(
+            "approval" if operation == "approve" else operation,
+            plan["plan_artifact_digest"],
+            approval["approval_artifact_digest"] if approval is not None else None,
+        )
+    elif version != "1":
+        raise BootstrapAuthorizationError("identity grant version is invalid")
+    payload = json.dumps(document, sort_keys=True, separators=(",", ":")).encode("ascii")
     try:
         if os.write(ready, payload) != len(payload):
             raise BootstrapAuthorizationError("identity grant readiness signal failed")
@@ -226,8 +248,10 @@ def _signal_identity_grant_ready(args: argparse.Namespace, operation: str) -> No
         os.close(ready)
 
 
-def _read_identity_grant_json(descriptor_number: int) -> str:
-    """Consume one PKCE grant from a non-persistent pipe/socket descriptor."""
+def _read_identity_grant_json(descriptor_number: int, version: str = "1") -> str:
+    """Consume only the selected grant from an anonymous pipe/socket."""
+    if version not in ("1", "2"):
+        raise BootstrapAuthorizationError("identity grant version is invalid")
     if descriptor_number < 0:
         raise BootstrapAuthorizationError("identity grant descriptor is invalid")
     try:
@@ -262,8 +286,20 @@ def _read_identity_grant_json(descriptor_number: int) -> str:
         raise BootstrapAuthorizationError("identity grant JSON is invalid")
     try:
         document = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         raise BootstrapAuthorizationError("identity grant JSON is invalid") from None
+    if version == "2":
+        assertion = ""
+        try:
+            assertion = JwtBearerGrant.from_mapping(document).consume_once()
+            return json.dumps({
+                "schema_version": "2",
+                "record_type": "platform_authority_bootstrap_identity_grant",
+                "grant_type": JWT_BEARER_GRANT,
+                "assertion": assertion,
+            }, sort_keys=True, separators=(",", ":"))
+        finally:
+            assertion = ""
     if (
         type(document) is not dict
         or set(document)
@@ -533,7 +569,17 @@ def _require_sso_environment(region: str) -> None:
 
 
 def _binding(args: argparse.Namespace) -> BootstrapBinding:
-    return BootstrapBinding(
+    mode = getattr(args, "operator_policy_mode", "independent")
+    authorized_at = getattr(args, "single_owner_authorized_at", None)
+    expires_at = getattr(args, "single_owner_expires_at", None)
+    if mode not in ("independent", "single_owner_v1") or (
+        mode == "independent" and (authorized_at is not None or expires_at is not None)
+    ):
+        raise BootstrapAuthorizationError("operator policy selection is invalid")
+    policy = SingleOwnerPolicy(authorized_at, expires_at) if mode == "single_owner_v1" else None
+    if policy is not None and getattr(args, "command", None) in ("plan", "approve", "apply") and getattr(args, "identity_grant_version", "1") != "2":
+        raise BootstrapAuthorizationError("single-owner operations require the JWT grant protocol")
+    binding = BootstrapBinding(
         authority_account_id=args.authority_account_id,
         region=args.region,
         stack_name="scanalyze-platform-authority-state-backend",
@@ -542,7 +588,25 @@ def _binding(args: argparse.Namespace) -> BootstrapBinding:
         ),
         state_key="platform-authority/terraform.tfstate",
         destination_account_ids=tuple(args.destination_account_id),
+        single_owner=policy,
     )
+    _require_active_operator_policy(binding)
+    return binding
+
+
+def _require_active_operator_policy(binding: BootstrapBinding) -> None:
+    if binding.single_owner is not None:
+        binding.single_owner.require_active(_now())
+
+
+def _plan_expiration(binding: BootstrapBinding, created_at: datetime) -> datetime:
+    expires_at = created_at + timedelta(hours=1)
+    if binding.single_owner is not None:
+        binding.single_owner.require_active(created_at)
+        expires_at = min(expires_at, binding.single_owner.end)
+        if (expires_at - created_at).total_seconds() < 300:
+            raise BootstrapAuthorizationError("single-owner authorization has insufficient Plan lifetime")
+    return expires_at
 
 
 def _require_operator_id(value: object, *, label: str) -> str:
@@ -874,15 +938,25 @@ def _cmd_render_approval_policy(args: argparse.Namespace) -> None:
     print("NO_CHANGE: no AWS call or mutation was performed")
 
 
-def _cmd_plan(args: argparse.Namespace) -> None:
+def _plan_candidate_inputs(args: argparse.Namespace) -> tuple[BootstrapBinding, str]:
     if not args.allow_change_set_write:
         raise BootstrapAuthorizationError("plan requires --allow-change-set-write")
     _outside_repo(args.plan_out)
     binding = _binding(args)
-    _require_operator_id(args.initiator_id, label="initiator")
+    initiator_id = _require_operator_id(args.initiator_id, label="initiator")
+    if binding.single_owner is not None and initiator_id != binding.single_owner.owner_operator_id:
+        raise BootstrapAuthorizationError("single-owner Plan requires the authorized owner")
     change_set_name = validate_bootstrap_change_set_name(args.change_set_name)
+    _plan_expiration(binding, _now())
     _require_sso_environment(binding.region)
-    authority = _artifact_authority_client(binding)
+    return binding, change_set_name
+
+
+def _create_plan_candidate(
+    args: argparse.Namespace, binding: BootstrapBinding, change_set_name: str,
+    *, on_create_started: Callable[[], None] | None = None,
+) -> dict[str, Any]:
+    """Create/read back one metadata-only Change Set; never anchor or execute."""
     client = AwsCli(region=binding.region)
     account_id, caller_arn, existing_pab, recovery_shell_present = _preflight(
         client,
@@ -890,7 +964,6 @@ def _cmd_plan(args: argparse.Namespace) -> None:
         allow_empty_review_stack=True,
     )
     _require_permission_set(caller_arn, PLAN_PERMISSION_SET)
-    created_at = _now()
     current_stack = _stack(client, binding.stack_name)
     if recovery_shell_present:
         if current_stack is None:
@@ -903,6 +976,10 @@ def _cmd_plan(args: argparse.Namespace) -> None:
         raise BootstrapAuthorizationError(
             "bootstrap stack appeared during authorization"
         )
+    created_at = _now()
+    expires_at = _plan_expiration(binding, created_at)
+    if on_create_started is not None:
+        on_create_started()
     response = client.run(
         "cloudformation",
         "create-change-set",
@@ -971,20 +1048,31 @@ def _cmd_plan(args: argparse.Namespace) -> None:
         resource_changes=_normalize_changes(described),
         account_public_access_block_before=existing_pab,
         created_at=created_at,
-        expires_at=created_at + timedelta(hours=1),
+        expires_at=expires_at,
         initiator_id=args.initiator_id,
         artifact_nonce=secrets.token_hex(32),
     )
-    _signal_identity_grant_ready(args, "plan")
-    identity_grant_json = _read_identity_grant_json(args.identity_grant_fd)
+    return plan
+
+
+def _cmd_plan(args: argparse.Namespace) -> None:
+    binding, change_set_name = _plan_candidate_inputs(args)
+    # Preserve legacy ordering: its provider factory precedes Change Set I/O.
+    authority = _artifact_authority_client(binding)
+    plan = _create_plan_candidate(args, binding, change_set_name)
+    _require_active_operator_policy(binding)
+    _signal_identity_grant_ready(args, "plan", plan)
+    identity_grant_json = _read_identity_grant_json(args.identity_grant_fd, getattr(args, "identity_grant_version", "1"))
     try:
+        _require_active_operator_policy(binding)
         authority.anchor_plan(plan, identity_grant_json)
     finally:
         identity_grant_json = ""
     _write_json(args.plan_out, plan)
-    print("PASS: exact CloudFormation change set created and Plan v2 anchored")
+    print(f"PASS: exact CloudFormation change set created and Plan v{plan['schema_version']} anchored")
     print(f"PLAN_DIGEST: {plan['plan_artifact_digest']}")
     print("AWS_CHANGE: change-set metadata only; infrastructure remains unchanged")
+
 
 
 def _cmd_approve(args: argparse.Namespace) -> None:
@@ -993,8 +1081,12 @@ def _cmd_approve(args: argparse.Namespace) -> None:
     plan = _strict_object(args.plan)
     _require_plan_matches_binding(plan, binding)
     approver_id = _require_operator_id(args.approver_id, label="approver")
-    if approver_id == plan.get("initiator_id"):
+    if binding.single_owner is not None:
+        if approver_id != binding.single_owner.owner_operator_id or plan.get("initiator_id") != approver_id:
+            raise BootstrapAuthorizationError("single-owner review requires the authorized owner")
+    elif approver_id == plan.get("initiator_id"):
         raise BootstrapAuthorizationError("bootstrap approval requires another actor")
+    _require_active_operator_policy(binding)
     _require_sso_environment(binding.region)
     authority = _artifact_authority_client(binding)
     client = AwsCli(region=binding.region)
@@ -1011,14 +1103,19 @@ def _cmd_approve(args: argparse.Namespace) -> None:
         expires_at=min(plan_expires, now + timedelta(minutes=30)),
         approval_nonce=secrets.token_hex(32),
     )
-    _signal_identity_grant_ready(args, "approve")
-    identity_grant_json = _read_identity_grant_json(args.identity_grant_fd)
+    _require_active_operator_policy(binding)
+    _signal_identity_grant_ready(args, "approve", plan, approval)
+    identity_grant_json = _read_identity_grant_json(args.identity_grant_fd, getattr(args, "identity_grant_version", "1"))
     try:
+        _require_active_operator_policy(binding)
         authority.approve_plan(plan, approval, identity_grant_json)
     finally:
         identity_grant_json = ""
     _write_json(args.approval_out, approval)
-    print("PASS: independent Approval role anchored the exact Plan v2")
+    if binding.single_owner is not None:
+        print("PASS: owner review anchored the exact Plan v3; independent approval is absent")
+    else:
+        print("PASS: independent Approval role anchored the exact Plan v2")
     print(f"APPROVAL_DIGEST: {approval['approval_artifact_digest']}")
     print("NO_CHANGE: approval did not execute the change set")
 
@@ -1184,6 +1281,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         current_template_sha256=_sha256(TEMPLATE),
         now=_now(),
     )
+    _require_active_operator_policy(binding)
     _require_sso_environment(binding.region)
     client = AwsCli(region=binding.region)
     account_id, caller_arn = _identity(client, binding)
@@ -1193,9 +1291,11 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         caller_region=binding.region,
     )
     authority = _artifact_authority_client(binding)
-    _signal_identity_grant_ready(args, "apply")
-    identity_grant_json = _read_identity_grant_json(args.identity_grant_fd)
+    _require_active_operator_policy(binding)
+    _signal_identity_grant_ready(args, "apply", plan, approval)
+    identity_grant_json = _read_identity_grant_json(args.identity_grant_fd, getattr(args, "identity_grant_version", "1"))
     try:
+        _require_active_operator_policy(binding)
         authorize_bootstrap_apply_v2(
             plan=plan,
             approval=approval,
@@ -1262,6 +1362,9 @@ def _cmd_verify(args: argparse.Namespace) -> None:
 def _common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--authority-account-id", required=True)
     parser.add_argument("--region", required=True)
+    parser.add_argument("--operator-policy-mode", choices=("independent", "single_owner_v1"), default="independent")
+    parser.add_argument("--single-owner-authorized-at")
+    parser.add_argument("--single-owner-expires-at")
     parser.add_argument(
         "--destination-account-id",
         action="append",
@@ -1320,6 +1423,7 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--plan-out", type=Path, required=True)
     plan.add_argument("--identity-grant-fd", type=int, required=True)
     plan.add_argument("--identity-grant-ready-fd", type=int)
+    plan.add_argument("--identity-grant-version", choices=("1", "2"), default="1")
     plan.add_argument("--allow-change-set-write", action="store_true")
     plan.set_defaults(handler=_cmd_plan)
 
@@ -1330,6 +1434,7 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("--approval-out", type=Path, required=True)
     approve.add_argument("--identity-grant-fd", type=int, required=True)
     approve.add_argument("--identity-grant-ready-fd", type=int)
+    approve.add_argument("--identity-grant-version", choices=("1", "2"), default="1")
     approve.set_defaults(handler=_cmd_approve)
 
     apply_parser = subparsers.add_parser("apply", help="Execute the exact approved change set once")
@@ -1340,8 +1445,10 @@ def _parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--backend-config-out", type=Path, required=True)
     apply_parser.add_argument("--identity-grant-fd", type=int, required=True)
     apply_parser.add_argument("--identity-grant-ready-fd", type=int)
+    apply_parser.add_argument("--identity-grant-version", choices=("1", "2"), default="1")
     apply_parser.add_argument("--allow-bootstrap-apply", action="store_true")
     apply_parser.set_defaults(handler=_cmd_apply)
+
 
     verify = subparsers.add_parser("verify", help="Read-only verification after an uncertain result")
     _common(verify)

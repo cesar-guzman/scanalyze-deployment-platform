@@ -55,6 +55,7 @@ SOURCE_PATHS = (
     Path("tooling/platform_authority_bootstrap_sdk_lock.py"),
     Path("tooling/platform_authority_bootstrap_artifact_authority.py"),
     Path("tooling/platform_authority_bootstrap_identity_proof.py"),
+    Path("tooling/platform_authority_bootstrap_jwt_grant.py"),
     Path("tooling/platform_authority_identity_context_compatibility.py"),
     Path("tooling/platform_authority_identity_context_pep.py"),
 )
@@ -64,6 +65,7 @@ PACKAGE_PATHS = tuple(
 )
 PROVENANCE_PATHS = (
     Path("tooling/platform_authority_bootstrap_identity_grant.py"),
+    Path("tooling/platform_authority_bootstrap_oidc_client.py"),
     Path("scripts/deployment/platform-authority-bootstrap-identity-grant.py"),
     Path("bootstrap/platform-authority-bootstrap-artifact-signing-trust-root.json"),
     Path("tooling/platform_authority_source_only_import.py"),

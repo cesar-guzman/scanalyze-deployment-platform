@@ -488,6 +488,56 @@ def _normalize_sha256(value: str, label: str) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class SingleOwnerPolicy:
+    """Explicit, expiring owner-only authorization; never independent review."""
+
+    authorized_at: str
+    expires_at: str
+
+    def __post_init__(self) -> None:
+        start, end = self.start, self.end
+        if not 0 < (end - start).total_seconds() <= 86400:
+            raise BootstrapAuthorizationError("single-owner authorization window is invalid")
+
+    @staticmethod
+    def _time(value: str) -> datetime:
+        if type(value) is not str or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", value) is None:
+            raise BootstrapAuthorizationError("single-owner authorization timestamp is invalid")
+        try:
+            return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+        except ValueError:
+            raise BootstrapAuthorizationError("single-owner authorization timestamp is invalid") from None
+
+    @property
+    def start(self) -> datetime:
+        return self._time(self.authorized_at)
+
+    @property
+    def end(self) -> datetime:
+        return self._time(self.expires_at)
+
+    @property
+    def owner_operator_id(self) -> str:
+        return "cesar-guzman"
+
+    @property
+    def digest(self) -> str:
+        value = {"authorization_mode": "single_owner_v1", "owner_operator_id": self.owner_operator_id,
+                 "independent_approval_present": False, "authorized_at": self.authorized_at,
+                 "expires_at": self.expires_at}
+        raw = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("ascii")
+        return "sha256:" + hashlib.sha256(b"scanalyze.bootstrap.single-owner-policy.v1\x00" + raw).hexdigest()
+
+    def require_active(self, now: datetime) -> None:
+        if not isinstance(now, datetime) or now.tzinfo is None or not self.start <= now < self.end:
+            raise BootstrapAuthorizationError("single-owner authorization is expired or not yet valid")
+
+    def metadata(self) -> dict[str, Any]:
+        return {"authorization_mode": "single_owner_v1", "independent_approval_present": False,
+                "operator_policy_digest": self.digest}
+
+
+@dataclass(frozen=True, slots=True)
 class BootstrapBinding:
     """Immutable bootstrap ownership and location binding."""
 
@@ -497,6 +547,7 @@ class BootstrapBinding:
     state_bucket_name: str
     state_key: str
     destination_account_ids: tuple[str, ...]
+    single_owner: SingleOwnerPolicy | None = None
 
     def __post_init__(self) -> None:
         destinations = tuple(self.destination_account_ids)
@@ -524,6 +575,13 @@ class BootstrapBinding:
             raise BootstrapAuthorizationError(
                 "authority account must differ from every destination account"
             )
+        if self.single_owner is not None and (
+            not isinstance(self.single_owner, SingleOwnerPolicy)
+            or self.authority_account_id != "042360977644"
+            or self.region != "us-east-1"
+            or destinations != ("905418363887",)
+        ):
+            raise BootstrapAuthorizationError("single-owner authorization scope is invalid")
 
     def authorize_identity(self, *, caller_account_id: str, caller_region: str) -> None:
         if caller_account_id != self.authority_account_id:

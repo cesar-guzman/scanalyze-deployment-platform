@@ -37,6 +37,23 @@ Parameters:
     Type: String
     NoEcho: true
     AllowedPattern: '^([0-9a-fA-F]{10}-)?[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$'
+  IdentityGrantVersion:
+    Type: String
+    Default: '1'
+    AllowedValues: ['1', '2']
+    Description: Explicit identity grant protocol; version 2 requires the complete reviewed JWT issuer binding.
+  JwtTrustedTokenIssuerArn:
+    Type: String
+    Default: ''
+    Description: Reviewed IAM Identity Center trusted token issuer ARN; empty for version 1.
+  JwtIssuerUrl:
+    Type: String
+    Default: ''
+    Description: Reviewed JWT issuer URL; empty for version 1.
+  JwtAudience:
+    Type: String
+    Default: ''
+    Description: Reviewed JWT audience; empty for version 1.
   AuthorityArtifactBucket:
     Type: String
     AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
@@ -101,6 +118,28 @@ Rules:
       - Assert: !Not
           - !Equals [!Ref PlanIdentityStoreUserId, !Ref SecondPartyIdentityStoreUserId]
         AssertDescription: Plan and Approval/Apply must bind different Identity Store users.
+
+  JwtIdentityGrantRequiresCompleteMetadata:
+    RuleCondition: !Equals [!Ref IdentityGrantVersion, '2']
+    Assertions:
+      - Assert: !Not
+          - !Equals [!Ref JwtTrustedTokenIssuerArn, '']
+        AssertDescription: Identity grant version 2 requires a reviewed trusted token issuer ARN.
+      - Assert: !Not
+          - !Equals [!Ref JwtIssuerUrl, '']
+        AssertDescription: Identity grant version 2 requires a reviewed JWT issuer URL.
+      - Assert: !Not
+          - !Equals [!Ref JwtAudience, '']
+        AssertDescription: Identity grant version 2 requires a reviewed JWT audience.
+  LegacyIdentityGrantRequiresEmptyJwtMetadata:
+    RuleCondition: !Equals [!Ref IdentityGrantVersion, '1']
+    Assertions:
+      - Assert: !Equals [!Ref JwtTrustedTokenIssuerArn, '']
+        AssertDescription: Identity grant version 1 cannot configure a JWT trusted token issuer.
+      - Assert: !Equals [!Ref JwtIssuerUrl, '']
+        AssertDescription: Identity grant version 1 cannot configure a JWT issuer URL.
+      - Assert: !Equals [!Ref JwtAudience, '']
+        AssertDescription: Identity grant version 1 cannot configure a JWT audience.
 
 Resources:
   AuthorityCodeSigningConfig:
@@ -716,6 +755,10 @@ Resources:
           GUG274_IDENTITY_REDIRECT_URI: !Ref IdentityRedirectUri
           GUG274_PLAN_IDENTITY_STORE_USER_ID: !Ref PlanIdentityStoreUserId
           GUG274_SECOND_PARTY_IDENTITY_STORE_USER_ID: !Ref SecondPartyIdentityStoreUserId
+          GUG274_IDENTITY_GRANT_VERSION: !Ref IdentityGrantVersion
+          GUG274_JWT_TRUSTED_TOKEN_ISSUER_ARN: !Ref JwtTrustedTokenIssuerArn
+          GUG274_JWT_ISSUER_URL: !Ref JwtIssuerUrl
+          GUG274_JWT_AUDIENCE: !Ref JwtAudience
           GUG274_SOURCE_COMMIT: !Ref SourceCommit
           GUG274_EXPECTED_BOTO3_VERSION: !Ref ExpectedBoto3Version
           GUG274_EXPECTED_BOTOCORE_VERSION: !Ref ExpectedBotocoreVersion

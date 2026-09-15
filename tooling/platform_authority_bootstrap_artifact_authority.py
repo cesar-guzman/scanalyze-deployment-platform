@@ -37,6 +37,10 @@ from tooling.platform_authority_bootstrap_identity_proof import (
     BootstrapIdentityProofError,
     validate_identity_proof_receipt,
 )
+from tooling.platform_authority_bootstrap_jwt_grant import (
+    JwtBearerBinding,
+    operation_binding_digest,
+)
 
 
 PLAN_DOMAIN = "scanalyze.platform-authority.bootstrap.plan.v2"
@@ -1417,14 +1421,36 @@ class BootstrapArtifactAuthorityBroker:
     now: Callable[[], datetime]
     effects_factory: BootstrapApplyEffectsFactory | None = None
 
+    def _transition_time(self, started_at: datetime) -> datetime:
+        current = self.now()
+        if current.tzinfo is None or current < started_at:
+            raise BootstrapArtifactAuthorityError("authority transition clock is invalid")
+        if self.binding.single_owner is not None:
+            self.binding.single_owner.require_active(current)
+        return current
+
     def _identity_proof(
-        self, *, operation: str, identity_grant: object, now: datetime
+        self,
+        *,
+        operation: str,
+        identity_grant: object,
+        now: datetime,
+        plan: Mapping[str, Any],
+        approval: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        nonce_arguments: dict[str, str] = {}
+        if self.identity_binding.jwt_bearer is not None:
+            nonce_arguments["operation_binding_digest"] = operation_binding_digest(
+                operation,
+                plan["plan_artifact_digest"],
+                approval["approval_artifact_digest"] if approval is not None else None,
+            )
         proof = self.identity_verifier.verify(
             operation=operation,
             identity_grant=identity_grant,
             binding=self.identity_binding,
             now=now,
+            **nonce_arguments,
         )
         validated = validate_identity_proof_receipt(
             proof, operation=operation, now=now
@@ -1444,12 +1470,13 @@ class BootstrapArtifactAuthorityBroker:
             operation="plan",
             identity_grant=identity_grant,
             now=operation_time,
+            plan=plan,
         )
         record = build_plan_anchor(
             plan,
             binding=self.binding,
             identity_proof=proof,
-            now=operation_time,
+            now=self._transition_time(operation_time),
         )
         try:
             self.store.create(record)
@@ -1475,6 +1502,8 @@ class BootstrapArtifactAuthorityBroker:
             operation="approval",
             identity_grant=identity_grant,
             now=operation_time,
+            plan=plan,
+            approval=approval,
         )
         current = self.store.get(str(plan.get("authority_record_id", "")))
         if current is None:
@@ -1485,7 +1514,7 @@ class BootstrapArtifactAuthorityBroker:
             approval=approval,
             identity_proof=proof,
             binding=self.binding,
-            now=operation_time,
+            now=self._transition_time(operation_time),
         )
         try:
             self.store.compare_and_swap(current, candidate)
@@ -1515,6 +1544,8 @@ class BootstrapArtifactAuthorityBroker:
             operation="apply",
             identity_grant=identity_grant,
             now=operation_time,
+            plan=plan,
+            approval=approval,
         )
         current = self.store.get(str(plan.get("authority_record_id", "")))
         if current is None:
@@ -1525,7 +1556,7 @@ class BootstrapArtifactAuthorityBroker:
             approval=approval,
             identity_proof=proof,
             binding=self.binding,
-            now=operation_time,
+            now=self._transition_time(operation_time),
         )
         try:
             self.store.compare_and_swap(current, candidate)
@@ -2257,6 +2288,20 @@ class BootstrapArtifactAuthorityRuntimeConfig:
             )
         account_id = str(values["GUG274_AUTHORITY_ACCOUNT_ID"])
         region = str(values["GUG274_AUTHORITY_REGION"])
+        grant_version = environment.get("GUG274_IDENTITY_GRANT_VERSION", "1")
+        jwt_fields = {
+            name: environment.get("GUG274_JWT_" + name, "")
+            for name in ("TRUSTED_TOKEN_ISSUER_ARN", "ISSUER_URL", "AUDIENCE")
+        }
+        if (
+            grant_version not in ("1", "2")
+            or any(type(value) is not str for value in jwt_fields.values())
+            or (grant_version == "1" and any(jwt_fields.values()))
+            or (grant_version == "2" and not all(jwt_fields.values()))
+        ):
+            raise BootstrapArtifactAuthorityError(
+                "artifact authority identity grant configuration is invalid"
+            )
         if environment.get("AWS_REGION") not in (None, region):
             raise BootstrapArtifactAuthorityError(
                 "artifact authority runtime Region is inconsistent"
@@ -2293,6 +2338,17 @@ class BootstrapArtifactAuthorityRuntimeConfig:
             )
             partition = _partition(region)
             role_prefix = f"arn:{partition}:iam::{account_id}:role/"
+            jwt_binding = None
+            if grant_version == "2":
+                jwt_binding = JwtBearerBinding(
+                    authority_account_id=account_id,
+                    identity_center_instance_arn=str(
+                        values["GUG274_IDENTITY_CENTER_INSTANCE_ARN"]
+                    ),
+                    trusted_token_issuer_arn=jwt_fields["TRUSTED_TOKEN_ISSUER_ARN"],
+                    issuer_url=jwt_fields["ISSUER_URL"],
+                    audience=jwt_fields["AUDIENCE"],
+                )
             identity_binding = BootstrapIdentityProofBinding(
                 authority_account_id=account_id,
                 region=region,
@@ -2328,6 +2384,7 @@ class BootstrapArtifactAuthorityRuntimeConfig:
                 apply_proof_role_arn=(
                     role_prefix + "ScanalyzeGug274BootstrapApplyIdentityProof"
                 ),
+                jwt_bearer=jwt_binding,
             )
         except BootstrapAuthorizationError:
             raise BootstrapArtifactAuthorityError(
