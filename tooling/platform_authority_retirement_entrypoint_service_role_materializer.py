@@ -94,6 +94,16 @@ PROOF_BOUNDARY_PATH = Path(
 LEDGER_FACTORY_BOUNDARY_PATH = Path(
     "policies/iam/platform-authority-gug365-ledger-factory-boundary.json"
 )
+# GUG-215 workforce factory PREPARED sources (deny-all + active). Loaded by
+# tooling.platform_authority_workforce_ledger_factory_policy.prepare_workforce_factory_policy_plan;
+# not an installation grant.
+WORKFORCE_FACTORY_BOUNDARY_PATH = Path(
+    "policies/iam/platform-authority-gug215-workforce-ledger-factory-boundary.json"
+)
+WORKFORCE_FACTORY_DENY_ALL_PATH = Path(
+    "policies/iam/platform-authority-gug215-workforce-ledger-factory-deny-all.json"
+)
+
 POLICY_FACTORY_POLICY_PATH = Path(
     "policies/iam/platform-authority-gug365-policy-factory.json"
 )
