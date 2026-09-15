@@ -35,6 +35,17 @@ SOURCE_PATHS = (
 PROVENANCE_PATHS = (
     Path("tooling/platform_authority_retirement_ledger_factory_package.py"),
 )
+WORKFORCE_ARTIFACT_TYPE = "scanalyze.platform_authority.retirement_ledger_factory_package.v2"
+WORKFORCE_ARCHIVE_NAME = "scanalyze-gug215-workforce-ledger-factory.zip"
+WORKFORCE_MANIFEST_NAME = "scanalyze-gug215-workforce-ledger-factory.manifest.json"
+WORKFORCE_HANDLER = "tooling.platform_authority_retirement_ledger_factory.handler_workforce"
+WORKFORCE_PROVENANCE_PATHS = PROVENANCE_PATHS + (
+    Path("schemas/platform-authority-retirement-ledger-factory-package.v2.schema.json"),
+    Path("schemas/platform-authority-retirement-ledger-factory-receipt.v2.schema.json"),
+    Path("scripts/deployment/platform-authority-retirement-entrypoint-service-role.py"),
+)
+_MAX_WORKFORCE_SOURCE_BYTES = 262_144
+_MAX_WORKFORCE_ARCHIVE_BYTES = 524_288
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -294,10 +305,12 @@ def _git(root: Path, *args: str, text: bool = True) -> str | bytes:
 
 
 def verify_clean_source_commit(
-    *, source_root: Path, source_commit: str
+    *, source_root: Path, source_commit: str, workforce: bool = False
 ) -> Mapping[Path, bytes]:
     """Read exact package sources only from a clean checked-out commit."""
 
+    if type(workforce) is not bool:
+        raise LedgerFactoryPackageError("PACKAGE_MODE_INVALID")
     if _COMMIT.fullmatch(source_commit) is None:
         raise LedgerFactoryPackageError("SOURCE_COMMIT_INVALID")
     root = source_root.resolve(strict=True)
@@ -313,7 +326,7 @@ def verify_clean_source_commit(
     if dirty:
         raise LedgerFactoryPackageError("SOURCE_TREE_DIRTY")
     committed: dict[Path, bytes] = {}
-    for path in SOURCE_PATHS:
+    for path in SOURCE_PATHS + (WORKFORCE_PROVENANCE_PATHS if workforce else ()):
         try:
             payload = bytes(
                 _git(root, "show", f"{source_commit}:{path.as_posix()}", text=False)
@@ -323,4 +336,215 @@ def verify_clean_source_commit(
         if payload != _read_source(root, path):
             raise LedgerFactoryPackageError("PACKAGE_SOURCE_COMMIT_DRIFT")
         committed[path] = payload
+    if workforce:
+        try:
+            final_head = str(_git(root, "rev-parse", "HEAD")).strip()
+            final_dirty = str(_git(root, "status", "--porcelain=v1", "--untracked-files=all"))
+        except (OSError, subprocess.SubprocessError):
+            raise LedgerFactoryPackageError("SOURCE_COMMIT_UNAVAILABLE") from None
+        if final_head != source_commit:
+            raise LedgerFactoryPackageError("SOURCE_COMMIT_MISMATCH")
+        if final_dirty:
+            raise LedgerFactoryPackageError("SOURCE_TREE_DIRTY")
     return committed
+
+
+def _workforce_runtime() -> Any:
+    # Source-only, stdlib-only import. Neither this import nor the runtime's
+    # module initialization constructs a provider client.
+    from tooling import platform_authority_retirement_ledger_factory
+
+    return platform_authority_retirement_ledger_factory
+
+
+def _workforce_manifest_constants() -> dict[str, Any]:
+    runtime = _workforce_runtime()
+    return {
+        "artifact_type": WORKFORCE_ARTIFACT_TYPE,
+        "schema_version": 2,
+        "work_package": "GUG-215",
+        "production": True,
+        "archive_name": WORKFORCE_ARCHIVE_NAME,
+        "handler": WORKFORCE_HANDLER,
+        "authorization_mode": runtime.WORKFORCE_AUTHORIZATION_MODE,
+        "factory_contract_sha256": runtime.WORKFORCE_CONTRACT_SHA256,
+        "artifact_status": "UNSIGNED_SOURCE_NOT_DEPLOYABLE",
+        "signature_status": "PENDING_SIGNING_AND_IMMUTABLE_VERSION_READBACK",
+        "source_ci_status": "PENDING_CONNECTED_REVALIDATION",
+        "source_snapshot_status": "CAPTURED_BYTES_NOT_AUTHENTICATED",
+        "function_version_arn": None,
+    }
+
+
+def build_workforce_ledger_factory_package(
+    *, source_root: Path, source_commit: str, runtime_version_arn: str,
+    committed_sources: Mapping[Path, bytes] | None = None,
+) -> BuiltLedgerFactoryPackage:
+    """Build unsigned v2 from a complete source/provenance snapshot.
+
+    Without an injected snapshot, the real HEAD/clean-tree/blob gate runs.
+    Injected snapshots support pure review/tests, not an authentication claim:
+    the manifest never certifies source CI, signing or installation. A future
+    caller must protect the pin and revalidate all gates before publication.
+    """
+    paths = SOURCE_PATHS + WORKFORCE_PROVENANCE_PATHS
+    if (type(runtime_version_arn) is not str or re.fullmatch(
+            r"arn:aws:lambda:us-east-1::runtime:[0-9a-f]{64}", runtime_version_arn) is None):
+        raise LedgerFactoryPackageError("RUNTIME_VERSION_ARN_INVALID")
+    captured = (verify_clean_source_commit(source_root=source_root,
+                source_commit=source_commit, workforce=True)
+                if committed_sources is None else committed_sources)
+    if set(captured) != set(paths):
+        raise LedgerFactoryPackageError("COMMITTED_SOURCE_SET_INVALID")
+    if any(type(captured[path]) is not bytes for path in paths):
+        raise LedgerFactoryPackageError("COMMITTED_SOURCE_BYTES_INVALID")
+    snapshot = {path: bytes(captured[path]) for path in paths}
+    for path, payload in snapshot.items():
+        if (len(payload) > _MAX_WORKFORCE_SOURCE_BYTES
+                or (not payload and path != Path("tooling/__init__.py"))):
+            raise LedgerFactoryPackageError("PACKAGE_SOURCE_SIZE_INVALID")
+    # Reuse the exact v1 ZIP writer. The distinct handler and metadata are
+    # selected here, never via Lambda event or environment.
+    built = build_ledger_factory_package(source_root=source_root,
+        source_commit=source_commit, runtime_version_arn=runtime_version_arn,
+        committed_sources={path: snapshot[path] for path in SOURCE_PATHS})
+    manifest = dict(built.manifest)
+    manifest.update(_workforce_manifest_constants())
+    manifest["provenance"] = [
+        {"path": path.as_posix(), "sha256": sha256(snapshot[path]).hexdigest(),
+         "size_bytes": len(snapshot[path])}
+        for path in WORKFORCE_PROVENANCE_PATHS
+    ]
+    manifest["manifest_digest"] = canonical_digest(
+        {key: value for key, value in manifest.items() if key != "manifest_digest"})
+    validate_workforce_ledger_factory_package_manifest(manifest, archive=built.archive)
+    return BuiltLedgerFactoryPackage(built.archive, manifest)
+
+
+def validate_workforce_ledger_factory_package_manifest(
+    manifest: Mapping[str, Any], *, archive: bytes | None = None,
+) -> None:
+    """Validate v2 integrity and canonical bytes; this grants no authority."""
+    if not isinstance(manifest, Mapping):
+        raise LedgerFactoryPackageError("PACKAGE_MANIFEST_FIELDS_INVALID")
+    constants = _workforce_manifest_constants()
+    if any(type(manifest.get(key)) is not type(value) or manifest.get(key) != value
+           for key, value in constants.items()):
+        raise LedgerFactoryPackageError("PACKAGE_MANIFEST_SCOPE_INVALID")
+    if (manifest.get("deployment_authorized") is not False
+            or manifest.get("environment") != {}
+            or type(manifest.get("environment")) is not dict):
+        raise LedgerFactoryPackageError("PACKAGE_MANIFEST_SCOPE_INVALID")
+    if manifest.get("manifest_digest") != canonical_digest(
+            {key: value for key, value in manifest.items() if key != "manifest_digest"}):
+        raise LedgerFactoryPackageError("PACKAGE_MANIFEST_DIGEST_INVALID")
+    provenance = manifest.get("provenance")
+    if type(provenance) is not list or len(provenance) != len(WORKFORCE_PROVENANCE_PATHS):
+        raise LedgerFactoryPackageError("PACKAGE_PROVENANCE_INVALID")
+    for entry, path in zip(provenance, WORKFORCE_PROVENANCE_PATHS, strict=True):
+        if (not isinstance(entry, Mapping)
+                or set(entry) != {"path", "sha256", "size_bytes"}
+                or entry.get("path") != path.as_posix()
+                or type(entry.get("sha256")) is not str
+                or _HEX_DIGEST.fullmatch(entry["sha256"]) is None
+                or type(entry.get("size_bytes")) is not int
+                or not 1 <= entry["size_bytes"] <= _MAX_WORKFORCE_SOURCE_BYTES):
+            raise LedgerFactoryPackageError("PACKAGE_PROVENANCE_INVALID")
+    # Adapt only the reviewed v2 differences into the existing pure v1
+    # validator. The public v1 validator continues rejecting v2 directly.
+    legacy = dict(manifest)
+    for key in constants.keys() - {"artifact_type", "schema_version", "work_package",
+                                  "production", "archive_name", "handler"}:
+        del legacy[key]
+    del legacy["provenance"]
+    legacy.update(artifact_type=ARTIFACT_TYPE, schema_version=1,
+                  work_package=WORK_PACKAGE, production=False,
+                  archive_name=ARCHIVE_NAME, handler=HANDLER)
+    legacy["manifest_digest"] = canonical_digest(
+        {key: value for key, value in legacy.items() if key != "manifest_digest"})
+    validate_ledger_factory_package_manifest(legacy)
+    if (manifest["archive_size_bytes"] > _MAX_WORKFORCE_ARCHIVE_BYTES
+            or any(entry["size_bytes"] > _MAX_WORKFORCE_SOURCE_BYTES
+                   for entry in manifest["entries"])):
+        raise LedgerFactoryPackageError("PACKAGE_SOURCE_SIZE_INVALID")
+    if archive is None:
+        return
+    if type(archive) is not bytes or len(archive) > _MAX_WORKFORCE_ARCHIVE_BYTES:
+        raise LedgerFactoryPackageError("PACKAGE_ARCHIVE_SIZE_INVALID")
+    try:
+        # Reject oversized declarations before the shared validator reads any
+        # member. Only stored, exact-size source bytes are accepted.
+        with ZipFile(BytesIO(archive)) as value:
+            if value.namelist() != [path.as_posix() for path in SOURCE_PATHS]:
+                raise LedgerFactoryPackageError("PACKAGE_ARCHIVE_MEMBERS_INVALID")
+            for info, entry in zip(value.infolist(), manifest["entries"], strict=True):
+                if (info.file_size != entry["size_bytes"]
+                        or info.compress_size != info.file_size
+                        or info.compress_type != ZIP_STORED
+                        or info.file_size > _MAX_WORKFORCE_SOURCE_BYTES):
+                    raise LedgerFactoryPackageError("PACKAGE_ARCHIVE_SIZE_INVALID")
+        validate_ledger_factory_package_manifest(legacy, archive=archive)
+        buffer = BytesIO()
+        with ZipFile(BytesIO(archive)) as source, ZipFile(
+                buffer, mode="w", compression=ZIP_STORED, strict_timestamps=True) as rebuilt:
+            for path in SOURCE_PATHS:
+                info, payload = _zip_entry(path, source.read(path.as_posix()))
+                rebuilt.writestr(info, payload)
+        if buffer.getvalue() != archive:
+            raise LedgerFactoryPackageError("PACKAGE_ARCHIVE_NOT_CANONICAL")
+    except BadZipFile:
+        raise LedgerFactoryPackageError("PACKAGE_ARCHIVE_INVALID") from None
+
+
+def validate_workforce_ledger_factory_causal_receipt(
+    receipt: Mapping[str, Any], *, expected_receipt_digest: str,
+    expected_function_version_arn: str,
+) -> None:
+    """Validate captured causal metadata with independent pins, not a grant.
+
+    The caller must authenticate custody of both pins and the provider result.
+    A valid hash cannot establish provenance or replace revocation/readback.
+    """
+    runtime = _workforce_runtime()
+    version_prefix = (f"arn:aws:lambda:{runtime.REGION}:{runtime.AUTHORITY_ACCOUNT_ID}:"
+                      f"function:{runtime.WORKFORCE_FACTORY_FUNCTION_NAME}:")
+    if (type(expected_function_version_arn) is not str
+            or re.fullmatch(re.escape(version_prefix) + r"[1-9][0-9]{0,7}",
+                            expected_function_version_arn) is None
+            or type(expected_receipt_digest) is not str
+            or _DIGEST.fullmatch(expected_receipt_digest) is None):
+        raise LedgerFactoryPackageError("WORKFORCE_RECEIPT_PIN_INVALID")
+    constants = {
+        "artifact_type": runtime.WORKFORCE_RECEIPT_ARTIFACT_TYPE,
+        "schema_version": 2,
+        "authorization_mode": runtime.WORKFORCE_AUTHORIZATION_MODE,
+        "deployment_authorized": False,
+        "production_status": "NO-GO",
+        "reason_code": "LEDGER_EXACT_FULL_READBACK",
+        "attempt": 1, "create_table_call_count": 1, "update_pitr_call_count": 1,
+        "retry_permitted": False, "next_required_action": "REVOKE_FACTORY_AUTHORITY",
+        "request_sha256": canonical_digest({}),
+        "contract_sha256": runtime.WORKFORCE_CONTRACT_SHA256,
+        "qualified_function_sha256": canonical_digest(
+            {"qualified_function_arn": expected_function_version_arn}),
+        "resource_policy_sha256": canonical_digest(runtime.canonical_workforce_resource_policy()),
+    }
+    counters = {"active_readback_attempt_count": (2, 60),
+                "policy_readback_attempt_count": (2, 12),
+                "pitr_readback_attempt_count": (1, 12)}
+    digests = {"kms_key_arn_sha256", "kms_key_metadata_sha256",
+               "revision_id_sha256", "receipt_sha256"}
+    if (not isinstance(receipt, Mapping)
+            or set(receipt) != set(constants) | set(counters) | digests | {"status"}
+            or receipt.get("status") not in ("CREATED", "CREATED_RECONCILED")
+            or any(type(receipt.get(key)) is not type(value) or receipt.get(key) != value
+                   for key, value in constants.items())
+            or any(type(receipt.get(key)) is not int or not low <= receipt[key] <= high
+                   for key, (low, high) in counters.items())
+            or any(type(receipt.get(key)) is not str or _DIGEST.fullmatch(receipt[key]) is None
+                   for key in digests)):
+        raise LedgerFactoryPackageError("WORKFORCE_CAUSAL_RECEIPT_INVALID")
+    actual = canonical_digest({key: value for key, value in receipt.items()
+                               if key != "receipt_sha256"})
+    if receipt["receipt_sha256"] != actual or expected_receipt_digest != actual:
+        raise LedgerFactoryPackageError("WORKFORCE_RECEIPT_PIN_MISMATCH")

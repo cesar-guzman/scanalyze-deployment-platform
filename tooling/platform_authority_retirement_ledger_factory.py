@@ -56,6 +56,12 @@ WRITE_ACTIONS = (
     "dynamodb:TransactWriteItems",
     "dynamodb:UpdateItem",
 )
+# TransactWriteItems is an API operation, not an IAM action. Its writes are
+# authorized through PutItem/UpdateItem/DeleteItem, all denied here already.
+# Keep the historical v1 projection unchanged; only v2 uses this corrected set.
+WORKFORCE_WRITE_ACTIONS = tuple(
+    action for action in WRITE_ACTIONS if action != "dynamodb:TransactWriteItems"
+)
 EXPECTED_LEDGER_TAGS = {
     "managed_by": "reviewed-direct-dynamodb",
     "service": "scanalyze-platform-authority",
@@ -66,6 +72,37 @@ EXPECTED_LEDGER_TAGS = {
     "account_id": AUTHORITY_ACCOUNT_ID,
     "region": REGION,
 }
+
+WORKFORCE_FACTORY_ROLE_NAME = "ScanalyzeGug215WorkforceLedgerFactory"
+WORKFORCE_FACTORY_FUNCTION_NAME = (
+    "scanalyze-platform-authority-gug215-workforce-ledger-factory"
+)
+WORKFORCE_AUTHORIZATION_MODE = "WORKFORCE_SINGLE_OWNER_RETIREMENT_V1"
+WORKFORCE_RECEIPT_ARTIFACT_TYPE = (
+    "scanalyze.platform_authority.retirement_ledger_factory_receipt.v2"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _FactoryContract:
+    """Source-owned immutable selection; never reconstructed from a request."""
+
+    role_name: str
+    function_name: str
+    tags: tuple[tuple[str, str], ...]
+    workforce: bool = False
+
+
+_LEGACY_CONTRACT = _FactoryContract(
+    FACTORY_ROLE_NAME, FACTORY_FUNCTION_NAME, tuple(EXPECTED_LEDGER_TAGS.items())
+)
+WORKFORCE_CONTRACT = _FactoryContract(
+    WORKFORCE_FACTORY_ROLE_NAME,
+    WORKFORCE_FACTORY_FUNCTION_NAME,
+    tuple((key, "production" if key == "environment" else "true" if key == "production" else value)
+          for key, value in EXPECTED_LEDGER_TAGS.items()),
+    workforce=True,
+)
 
 _FUNCTION_VERSION = re.compile(r"^[1-9][0-9]{0,7}$")
 _REVISION_ID = re.compile(r"^[^\s]{1,255}$")
@@ -139,10 +176,12 @@ def _retirement_broker_role_arn() -> str:
     )
 
 
-def _factory_function_arn(*, version: str) -> str:
+def _factory_function_arn(
+    *, version: str, contract: _FactoryContract = _LEGACY_CONTRACT
+) -> str:
     return (
         f"arn:{PARTITION}:lambda:{REGION}:{AUTHORITY_ACCOUNT_ID}:"
-        f"function:{FACTORY_FUNCTION_NAME}:{version}"
+        f"function:{contract.function_name}:{version}"
     )
 
 
@@ -166,8 +205,30 @@ def canonical_resource_policy() -> dict[str, Any]:
     }
 
 
+def canonical_workforce_resource_policy() -> dict[str, Any]:
+    policy = canonical_resource_policy()
+    policy["Statement"][0]["Action"] = list(WORKFORCE_WRITE_ACTIONS)
+    return policy
+
+
+def _resource_policy(contract: _FactoryContract) -> dict[str, Any]:
+    return (canonical_workforce_resource_policy() if contract.workforce
+            else canonical_resource_policy())
+
+
 def create_table_request() -> dict[str, Any]:
-    """Return the only CreateTable request this runtime can issue."""
+    """Return the fixed request for the legacy non-production entrypoint."""
+
+    return _create_table_request(_LEGACY_CONTRACT)
+
+
+def create_workforce_table_request() -> dict[str, Any]:
+    """Return the source-fixed production request, without installation authority."""
+
+    return _create_table_request(WORKFORCE_CONTRACT)
+
+
+def _create_table_request(contract: _FactoryContract) -> dict[str, Any]:
 
     return {
         "TableName": LEDGER_TABLE_NAME,
@@ -186,10 +247,10 @@ def create_table_request() -> dict[str, Any]:
         "DeletionProtectionEnabled": True,
         "TableClass": "STANDARD",
         # DynamoDB models ResourcePolicy as a JSON string, not a document map.
-        "ResourcePolicy": canonical_json(canonical_resource_policy()),
+        "ResourcePolicy": canonical_json(_resource_policy(contract)),
         "Tags": [
             {"Key": key, "Value": value}
-            for key, value in EXPECTED_LEDGER_TAGS.items()
+            for key, value in contract.tags
         ],
     }
 
@@ -204,29 +265,39 @@ def update_pitr_request() -> dict[str, Any]:
     }
 
 
-def _contract_projection() -> dict[str, Any]:
-    return {
+def _contract_projection(
+    contract: _FactoryContract = _LEGACY_CONTRACT,
+) -> dict[str, Any]:
+    projection = {
         "account_sha256": _secret_digest(
             "authority_account_id", AUTHORITY_ACCOUNT_ID
         ),
         "region_sha256": _secret_digest("region", REGION),
         "table_sha256": _secret_digest("table_arn", _table_arn()),
         "factory_role_sha256": _secret_digest(
-            "factory_role_name", FACTORY_ROLE_NAME
+            "factory_role_name", contract.role_name
         ),
         "factory_function_sha256": _secret_digest(
-            "factory_function_name", FACTORY_FUNCTION_NAME
+            "factory_function_name", contract.function_name
         ),
-        "create_table_request_sha256": canonical_digest(create_table_request()),
+        "create_table_request_sha256": canonical_digest(_create_table_request(contract)),
         "update_pitr_request_sha256": canonical_digest(update_pitr_request()),
-        "resource_policy_sha256": canonical_digest(canonical_resource_policy()),
+        "resource_policy_sha256": canonical_digest(_resource_policy(contract)),
         "kms_key_alias_sha256": _secret_digest(
             "kms_key_alias", KMS_KEY_ALIAS
         ),
     }
+    if contract.workforce:
+        projection.update(
+            authorization_mode=WORKFORCE_AUTHORIZATION_MODE,
+            existing_table_behavior="DENY_WITHOUT_CERTIFICATION",
+            deployment_authorized=False,
+        )
+    return projection
 
 
 CONTRACT_SHA256 = canonical_digest(_contract_projection())
+WORKFORCE_CONTRACT_SHA256 = canonical_digest(_contract_projection(WORKFORCE_CONTRACT))
 
 
 def _validate_event(event: object) -> None:
@@ -234,13 +305,15 @@ def _validate_event(event: object) -> None:
         _fail("EMPTY_EVENT_REQUIRED")
 
 
-def _runtime_version(context: object) -> str:
+def _runtime_version(
+    context: object, contract: _FactoryContract = _LEGACY_CONTRACT
+) -> str:
     version = getattr(context, "function_version", None)
     invoked = getattr(context, "invoked_function_arn", None)
     if (
         not isinstance(version, str)
         or _FUNCTION_VERSION.fullmatch(version) is None
-        or invoked != _factory_function_arn(version=version)
+        or invoked != _factory_function_arn(version=version, contract=contract)
     ):
         _fail("DEDICATED_FUNCTION_VERSION_REQUIRED")
     return version
@@ -307,7 +380,9 @@ class BotoClients:
         )
 
 
-def _validate_caller_identity(sts: Any) -> None:
+def _validate_caller_identity(
+    sts: Any, contract: _FactoryContract = _LEGACY_CONTRACT
+) -> None:
     try:
         response = sts.get_caller_identity()
     except Exception:
@@ -316,7 +391,11 @@ def _validate_caller_identity(sts: Any) -> None:
         not isinstance(response, Mapping)
         or response.get("Account") != AUTHORITY_ACCOUNT_ID
         or not isinstance(response.get("Arn"), str)
-        or _ASSUMED_ROLE_ARN.fullmatch(response["Arn"]) is None
+        or re.fullmatch(
+            rf"arn:aws:sts::{AUTHORITY_ACCOUNT_ID}:assumed-role/"
+            + re.escape(contract.role_name) + r"/[A-Za-z0-9+=,.@_-]{2,64}",
+            response["Arn"],
+        ) is None
     ):
         _fail("CALLER_IDENTITY_BINDING_MISMATCH")
 
@@ -512,7 +591,9 @@ def _wait_until_active(
     return None, ACTIVE_READBACK_MAX_ATTEMPTS
 
 
-def _resource_policy_snapshot(dynamodb: Any) -> tuple[str, str | None]:
+def _resource_policy_snapshot(
+    dynamodb: Any, contract: _FactoryContract = _LEGACY_CONTRACT
+) -> tuple[str, str | None]:
     try:
         response = dynamodb.get_resource_policy(ResourceArn=_table_arn())
     except Exception as exc:
@@ -529,17 +610,18 @@ def _resource_policy_snapshot(dynamodb: Any) -> tuple[str, str | None]:
     if not isinstance(revision_id, str) or _REVISION_ID.fullmatch(revision_id) is None:
         _fail("RESOURCE_POLICY_REVISION_INVALID")
     return (
-        "EXACT" if observed == canonical_resource_policy() else "DRIFTED",
+        "EXACT" if observed == _resource_policy(contract) else "DRIFTED",
         revision_id,
     )
 
 
 def _poll_exact_policy(
-    dynamodb: Any, *, sleeper: Callable[[float], None]
+    dynamodb: Any, *, sleeper: Callable[[float], None],
+    contract: _FactoryContract = _LEGACY_CONTRACT,
 ) -> tuple[str | None, int]:
     for attempt in range(1, POLICY_READBACK_MAX_ATTEMPTS + 1):
         try:
-            state, revision_id = _resource_policy_snapshot(dynamodb)
+            state, revision_id = _resource_policy_snapshot(dynamodb, contract)
         except LedgerFactoryError:
             state, revision_id = "UNAVAILABLE", None
         if state == "EXACT":
@@ -551,7 +633,9 @@ def _poll_exact_policy(
     return None, POLICY_READBACK_MAX_ATTEMPTS
 
 
-def _validate_tags(dynamodb: Any) -> None:
+def _validate_tags(
+    dynamodb: Any, contract: _FactoryContract = _LEGACY_CONTRACT
+) -> None:
     try:
         response = dynamodb.list_tags_of_resource(ResourceArn=_table_arn())
     except Exception:
@@ -569,7 +653,7 @@ def _validate_tags(dynamodb: Any) -> None:
     ):
         _fail("LEDGER_TAGS_CHANGED")
     normalized = {item["Key"]: item["Value"] for item in tags}
-    if len(normalized) != len(tags) or normalized != EXPECTED_LEDGER_TAGS:
+    if len(normalized) != len(tags) or normalized != dict(contract.tags):
         _fail("LEDGER_TAGS_CHANGED")
 
 
@@ -658,6 +742,7 @@ def _certify_exact(
     *,
     sleeper: Callable[[float], None],
     expected_revision_id: str | None = None,
+    contract: _FactoryContract = _LEGACY_CONTRACT,
 ) -> tuple[str, int, int, str, str]:
     (
         kms_key_arn,
@@ -671,14 +756,15 @@ def _certify_exact(
     )
     if table is None:
         _fail("LEDGER_ACTIVE_READBACK_NOT_PROVEN")
-    revision_id, policy_attempts = _poll_exact_policy(dynamodb, sleeper=sleeper)
+    revision_id, policy_attempts = _poll_exact_policy(
+        dynamodb, sleeper=sleeper, contract=contract)
     if revision_id is None:
         _fail("LEDGER_RESOURCE_POLICY_NOT_PROVEN")
     if expected_revision_id is not None and revision_id != expected_revision_id:
         _fail("LEDGER_RESOURCE_POLICY_REVISION_CHANGED")
     if not _pitr_exact(dynamodb):
         _fail("LEDGER_RECOVERY_CONTROLS_CHANGED")
-    _validate_tags(dynamodb)
+    _validate_tags(dynamodb, contract)
     _validate_empty(dynamodb)
     _validate_ttl_disabled(dynamodb)
     return (
@@ -747,10 +833,11 @@ def _receipt(
     active_readback_attempt_count: int = 0,
     policy_readback_attempt_count: int = 0,
     pitr_readback_attempt_count: int = 0,
+    contract: _FactoryContract = _LEGACY_CONTRACT,
 ) -> dict[str, Any]:
     receipt: dict[str, Any] = {
-        "artifact_type": RECEIPT_ARTIFACT_TYPE,
-        "schema_version": SCHEMA_VERSION,
+        "artifact_type": WORKFORCE_RECEIPT_ARTIFACT_TYPE if contract.workforce else RECEIPT_ARTIFACT_TYPE,
+        "schema_version": 2 if contract.workforce else SCHEMA_VERSION,
         "status": status,
         "reason_code": reason_code,
         "attempt": 1,
@@ -759,11 +846,11 @@ def _receipt(
         "retry_permitted": False,
         "next_required_action": next_required_action,
         "request_sha256": canonical_digest({}),
-        "contract_sha256": CONTRACT_SHA256,
+        "contract_sha256": canonical_digest(_contract_projection(contract)),
         "qualified_function_sha256": _secret_digest(
-            "qualified_function_arn", _factory_function_arn(version=version)
+            "qualified_function_arn", _factory_function_arn(version=version, contract=contract)
         ),
-        "resource_policy_sha256": canonical_digest(canonical_resource_policy()),
+        "resource_policy_sha256": canonical_digest(_resource_policy(contract)),
         "kms_key_arn_sha256": kms_key_arn_sha256,
         "kms_key_metadata_sha256": kms_key_metadata_sha256,
         "revision_id_sha256": (
@@ -775,47 +862,60 @@ def _receipt(
         "policy_readback_attempt_count": policy_readback_attempt_count,
         "pitr_readback_attempt_count": pitr_readback_attempt_count,
     }
+    if contract.workforce:
+        receipt.update(authorization_mode=WORKFORCE_AUTHORIZATION_MODE,
+                       deployment_authorized=False, production_status="NO-GO")
     receipt["receipt_sha256"] = canonical_digest(receipt)
     return receipt
 
 
-def _deny_receipt(code: str) -> dict[str, Any]:
+def _deny_receipt(
+    code: str, contract: _FactoryContract = _LEGACY_CONTRACT
+) -> dict[str, Any]:
     receipt: dict[str, Any] = {
-        "artifact_type": RECEIPT_ARTIFACT_TYPE,
-        "schema_version": SCHEMA_VERSION,
+        "artifact_type": WORKFORCE_RECEIPT_ARTIFACT_TYPE if contract.workforce else RECEIPT_ARTIFACT_TYPE,
+        "schema_version": 2 if contract.workforce else SCHEMA_VERSION,
         "status": "DENY",
         "reason_code": code,
         "create_table_call_count": 0,
         "update_pitr_call_count": 0,
         "retry_permitted": False,
         "next_required_action": "STOP",
-        "contract_sha256": CONTRACT_SHA256,
+        "contract_sha256": canonical_digest(_contract_projection(contract)),
     }
+    if contract.workforce:
+        receipt.update(authorization_mode=WORKFORCE_AUTHORIZATION_MODE,
+                       deployment_authorized=False, production_status="NO-GO")
     receipt["receipt_sha256"] = canonical_digest(receipt)
     return receipt
 
 
-def execute(
+def _execute(
     *,
     event: object,
     context: object,
     clients: BotoClients,
     sleeper: Callable[[float], None] = sleep,
+    contract: _FactoryContract,
 ) -> dict[str, Any]:
     """Create and certify one exact protected empty ledger."""
 
     _validate_event(event)
-    version = _runtime_version(context)
+    version = _runtime_version(context, contract)
 
     # This is intentionally the first provider API call of every invocation.
-    _validate_caller_identity(clients.sts)
+    _validate_caller_identity(clients.sts, contract)
     first = _describe_table(clients.dynamodb)
     if first is not None:
+        if contract.workforce:
+            return _deny_receipt("WORKFORCE_EXISTING_TABLE_DENIED", contract)
         return _existing_table_receipt(
             clients.dynamodb, clients.kms, sleeper=sleeper, version=version
         )
     sleeper(ABSENCE_CONFIRMATION_DELAY_SECONDS)
     if _describe_table(clients.dynamodb) is not None:
+        if contract.workforce:
+            return _deny_receipt("WORKFORCE_EXISTING_TABLE_DENIED", contract)
         # A concurrent creator won the race. Never call CreateTable; classify
         # its result read-only and refuse any repair.
         return _existing_table_receipt(
@@ -833,6 +933,7 @@ def execute(
         ) = _describe_exact_kms_key(clients.kms)
     except LedgerFactoryError as exc:
         return _receipt(
+            contract=contract,
             status="DENY",
             reason_code=exc.code,
             version=version,
@@ -842,7 +943,7 @@ def execute(
         )
 
     try:
-        create_response = clients.dynamodb.create_table(**create_table_request())
+        create_response = clients.dynamodb.create_table(**_create_table_request(contract))
     except Exception:
         # The effect may have crossed the boundary. Bounded readback only; no
         # UpdateContinuousBackups and never another CreateTable call.
@@ -852,6 +953,7 @@ def execute(
             expected_kms_key_arn=kms_key_arn,
         )
         return _receipt(
+            contract=contract,
             status="UNCERTAIN_RECONCILE_ONLY",
             reason_code="CREATE_TABLE_OUTCOME_NOT_PROVEN",
             version=version,
@@ -878,6 +980,7 @@ def execute(
             expected_kms_key_arn=kms_key_arn,
         )
         return _receipt(
+            contract=contract,
             status="UNCERTAIN_RECONCILE_ONLY",
             reason_code="CREATE_TABLE_RESPONSE_NOT_PROVEN",
             version=version,
@@ -896,6 +999,7 @@ def execute(
     )
     if table is None:
         return _receipt(
+            contract=contract,
             status="UNCERTAIN_RECONCILE_ONLY",
             reason_code="CREATE_TABLE_ACTIVE_NOT_PROVEN",
             version=version,
@@ -907,16 +1011,17 @@ def execute(
             active_readback_attempt_count=active_attempts,
         )
     revision, policy_attempts = _poll_exact_policy(
-        clients.dynamodb, sleeper=sleeper
+        clients.dynamodb, sleeper=sleeper, contract=contract
     )
     try:
         if revision is None:
             _fail("CREATE_TABLE_POLICY_NOT_PROVEN")
-        _validate_tags(clients.dynamodb)
+        _validate_tags(clients.dynamodb, contract)
         _validate_empty(clients.dynamodb)
         _validate_ttl_disabled(clients.dynamodb)
     except LedgerFactoryError:
         return _receipt(
+            contract=contract,
             status="UNCERTAIN_RECONCILE_ONLY",
             reason_code="CREATE_TABLE_CONTROLS_NOT_PROVEN",
             version=version,
@@ -940,6 +1045,7 @@ def execute(
     )
     if not pitr_exact:
         return _receipt(
+            contract=contract,
             status="UNCERTAIN_RECONCILE_ONLY",
             reason_code="PITR_UPDATE_OUTCOME_NOT_PROVEN",
             version=version,
@@ -965,6 +1071,7 @@ def execute(
             clients.kms,
             sleeper=sleeper,
             expected_revision_id=revision,
+            contract=contract,
         )
         if (
             final_kms_key_arn_sha256 != kms_key_arn_sha256
@@ -973,6 +1080,7 @@ def execute(
             _fail("KMS_KEY_READBACK_CHANGED")
     except LedgerFactoryError:
         return _receipt(
+            contract=contract,
             status="UNCERTAIN_RECONCILE_ONLY",
             reason_code="FINAL_CERTIFICATION_NOT_PROVEN",
             version=version,
@@ -987,6 +1095,7 @@ def execute(
             pitr_readback_attempt_count=pitr_attempts,
         )
     return _receipt(
+        contract=contract,
         status="CREATED_RECONCILED" if update_failed else "CREATED",
         reason_code="LEDGER_EXACT_FULL_READBACK",
         version=version,
@@ -1002,6 +1111,29 @@ def execute(
     )
 
 
+def execute(
+    *, event: object, context: object, clients: BotoClients,
+    sleeper: Callable[[float], None] = sleep,
+) -> dict[str, Any]:
+    """Legacy non-production entrypoint; its contract remains the default."""
+    return _execute(event=event, context=context, clients=clients,
+                    sleeper=sleeper, contract=_LEGACY_CONTRACT)
+
+
+def execute_workforce(
+    *, event: object, context: object, clients: BotoClients,
+    sleeper: Callable[[float], None] = sleep,
+) -> dict[str, Any]:
+    """Create only a new production ledger under the fixed workforce contract.
+
+    This is not an adoption or reconciliation entrypoint. A causal receipt is
+    evidence of this invocation's bounded calls, not permission to invoke the
+    broker. The installer must independently verify custody and revocation.
+    """
+    return _execute(event=event, context=context, clients=clients,
+                    sleeper=sleeper, contract=WORKFORCE_CONTRACT)
+
+
 def handler(event: object, context: object) -> dict[str, Any]:
     """Lambda entrypoint returning only a sanitized digest-bound receipt."""
 
@@ -1011,3 +1143,15 @@ def handler(event: object, context: object) -> dict[str, Any]:
         return _deny_receipt(exc.code)
     except Exception:
         return _deny_receipt("LEDGER_FACTORY_INTERNAL_ERROR")
+
+
+def handler_workforce(event: object, context: object) -> dict[str, Any]:
+    """Fixed workforce handler; callers cannot select a different contract."""
+    try:
+        _validate_event(event)
+        _runtime_version(context, WORKFORCE_CONTRACT)
+        return execute_workforce(event=event, context=context, clients=BotoClients.create())
+    except LedgerFactoryError as exc:
+        return _deny_receipt(exc.code, WORKFORCE_CONTRACT)
+    except Exception:
+        return _deny_receipt("LEDGER_FACTORY_INTERNAL_ERROR", WORKFORCE_CONTRACT)

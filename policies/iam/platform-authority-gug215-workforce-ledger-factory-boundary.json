@@ -1,0 +1,299 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConfirmFactoryCaller",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateExactProductionLedger",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:CreateTable",
+        "dynamodb:TagResource"
+      ],
+      "Resource": "arn:aws:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-change-set-retirements",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/managed_by": "reviewed-direct-dynamodb",
+          "aws:RequestTag/service": "scanalyze-platform-authority",
+          "aws:RequestTag/data_class": "control-metadata",
+          "aws:RequestTag/work_package": "GUG-215",
+          "aws:RequestTag/environment": "production",
+          "aws:RequestTag/production": "true",
+          "aws:RequestTag/account_id": "042360977644",
+          "aws:RequestTag/region": "us-east-1"
+        },
+        "Null": {
+          "aws:TagKeys": "false"
+        },
+        "ForAllValues:StringEquals": {
+          "aws:TagKeys": [
+            "managed_by",
+            "service",
+            "data_class",
+            "work_package",
+            "environment",
+            "production",
+            "account_id",
+            "region"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "ConfigureAndReadExactLedger",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:GetResourcePolicy",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:PutResourcePolicy",
+        "dynamodb:UpdateContinuousBackups"
+      ],
+      "Resource": "arn:aws:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-change-set-retirements"
+    },
+    {
+      "Sid": "CountOnlyExactLedger",
+      "Effect": "Allow",
+      "Action": "dynamodb:Scan",
+      "Resource": "arn:aws:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-change-set-retirements",
+      "Condition": {
+        "StringEquals": {
+          "dynamodb:Select": "COUNT"
+        }
+      }
+    },
+    {
+      "Sid": "DescribePinnedManagedKey",
+      "Effect": "Allow",
+      "Action": "kms:DescribeKey",
+      "Resource": "${ledger_kms_key_arn}"
+    },
+    {
+      "Sid": "DynamoDbServiceCryptographyOnly",
+      "Effect": "Allow",
+      "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncryptFrom",
+        "kms:ReEncryptTo",
+        "kms:GenerateDataKey",
+        "kms:GenerateDataKeyWithoutPlaintext"
+      ],
+      "Resource": "${ledger_kms_key_arn}",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "dynamodb.us-east-1.amazonaws.com",
+          "kms:CallerAccount": "042360977644"
+        }
+      }
+    },
+    {
+      "Sid": "DynamoDbServiceGrantOnly",
+      "Effect": "Allow",
+      "Action": "kms:CreateGrant",
+      "Resource": "${ledger_kms_key_arn}",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "dynamodb.us-east-1.amazonaws.com",
+          "kms:CallerAccount": "042360977644"
+        },
+        "Bool": {
+          "kms:GrantIsForAWSResource": "true"
+        }
+      }
+    },
+    {
+      "Sid": "WriteDedicatedStreams",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-platform-authority-gug215-workforce-ledger-factory:log-stream:*"
+    },
+    {
+      "Sid": "DenyUnexpectedFunctionOrigin",
+      "Effect": "Deny",
+      "NotAction": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncryptFrom",
+        "kms:ReEncryptTo",
+        "kms:GenerateDataKey",
+        "kms:GenerateDataKeyWithoutPlaintext",
+        "kms:CreateGrant"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ArnNotEqualsIfExists": {
+          "lambda:SourceFunctionArn": "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-platform-authority-gug215-workforce-ledger-factory"
+        }
+      }
+    },
+    {
+      "Sid": "DenyOutsideFactoryActions",
+      "Effect": "Deny",
+      "NotAction": [
+        "sts:GetCallerIdentity",
+        "dynamodb:CreateTable",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:GetResourcePolicy",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:PutResourcePolicy",
+        "dynamodb:Scan",
+        "dynamodb:TagResource",
+        "dynamodb:UpdateContinuousBackups",
+        "kms:DescribeKey",
+        "kms:CreateGrant",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncryptFrom",
+        "kms:ReEncryptTo",
+        "kms:GenerateDataKey",
+        "kms:GenerateDataKeyWithoutPlaintext"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyOtherTables",
+      "Effect": "Deny",
+      "Action": "dynamodb:*",
+      "NotResource": "arn:aws:dynamodb:us-east-1:042360977644:table/scanalyze-platform-authority-change-set-retirements"
+    },
+    {
+      "Sid": "DenyOtherKeys",
+      "Effect": "Deny",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncryptFrom",
+        "kms:ReEncryptTo",
+        "kms:GenerateDataKey",
+        "kms:GenerateDataKeyWithoutPlaintext",
+        "kms:CreateGrant"
+      ],
+      "NotResource": "${ledger_kms_key_arn}"
+    },
+    {
+      "Sid": "DenyOtherLogStreams",
+      "Effect": "Deny",
+      "Action": "logs:*",
+      "NotResource": "arn:aws:logs:us-east-1:042360977644:log-group:/aws/lambda/scanalyze-platform-authority-gug215-workforce-ledger-factory:log-stream:*"
+    },
+    {
+      "Sid": "DenyDirectOrForeignKmsService",
+      "Effect": "Deny",
+      "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncryptFrom",
+        "kms:ReEncryptTo",
+        "kms:GenerateDataKey",
+        "kms:GenerateDataKeyWithoutPlaintext",
+        "kms:CreateGrant"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEqualsIfExists": {
+          "kms:ViaService": "dynamodb.us-east-1.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "DenyForeignKmsCallerAccount",
+      "Effect": "Deny",
+      "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncryptFrom",
+        "kms:ReEncryptTo",
+        "kms:GenerateDataKey",
+        "kms:GenerateDataKeyWithoutPlaintext",
+        "kms:CreateGrant"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringNotEqualsIfExists": {
+          "kms:CallerAccount": "042360977644"
+        }
+      }
+    },
+    {
+      "Sid": "DenyNonServiceGrant",
+      "Effect": "Deny",
+      "Action": "kms:CreateGrant",
+      "Resource": "*",
+      "Condition": {
+        "BoolIfExists": {
+          "kms:GrantIsForAWSResource": "false"
+        }
+      }
+    },
+    {
+      "Sid": "DenyBeforeWindow",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "DateLessThan": {
+          "aws:CurrentTime": "${factory_not_before}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyExpiredWindow",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${factory_not_after}"
+        }
+      }
+    },
+    {
+      "Sid": "DenyMissingClock",
+      "Effect": "Deny",
+      "Action": "*",
+      "Resource": "*",
+      "Condition": {
+        "Null": {
+          "aws:CurrentTime": "true"
+        }
+      }
+    },
+    {
+      "Sid": "DenyForeignFasOriginWhenPresent",
+      "Effect": "Deny",
+      "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncryptFrom",
+        "kms:ReEncryptTo",
+        "kms:GenerateDataKey",
+        "kms:GenerateDataKeyWithoutPlaintext",
+        "kms:CreateGrant"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "Null": {
+          "lambda:SourceFunctionArn": "false"
+        },
+        "ArnNotEquals": {
+          "lambda:SourceFunctionArn": "arn:aws:lambda:us-east-1:042360977644:function:scanalyze-platform-authority-gug215-workforce-ledger-factory"
+        }
+      }
+    }
+  ]
+}

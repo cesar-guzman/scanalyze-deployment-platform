@@ -151,3 +151,150 @@ allowlist:
     match_sha256: 254aa248acb47dd654ca3ea53f48c2c26d641d23d7e2e93a1ec56258df7674c4
     reason: "Synthetic NSS-format validation fixture"
     owner: backend-testing
+
+  - path: docs/operations/monday-production-delivery.md
+    line_pattern: 'actions/runs/[0-9]+'
+    pattern_id: NSS
+    match_sha256: 7ef39dc6bb16b3bb0102f63893712011d2f97153ebb892de0faacec98fc3a30e
+    reason: "GitHub Actions run id in ops notes; fingerprint pins the documented run only"
+    owner: platform-security-docs
+
+  - path: docs/operations/production-infrastructure-selection-runbook.md
+    line_pattern: '"zone_id"\s*:\s*"ZSYNTHETIC[0-9]+"'
+    pattern_id: RFC
+    match_sha256: 7f24df56a5895f3e6021ce527a2e886465d0a3029837183a23393c65fae85135
+    reason: "Synthetic Route53 zone id example; RFC false-positive substring of ZSYNTHETIC… zone id"
+    owner: platform-security-docs
+
+  - path: fixtures/valid/platform-authority-bootstrap-artifact-package-v2-synthetic.json
+    line_pattern: '52[0-9]{10}'
+    pattern_id: MX_PHONE
+    match_sha256: 794d7ff94ef6a9350b2595639f3dc748db60796197d8ec0edc773bf664360be1,a4471e2aff3aa89080d8648046269235beb626e9bcee551d20911e6284707fcc,b7c49899268a800dc4378a52c288da4a80c337be9b0a3a334a795d032011436b,c0d8e7830e8f2a75f3d4fd7f25b6f622b73df84fe72beedc779413f64f8d6a09,f3b5ab2a9e7d70c9b3e09e1fa128bf734653c9edb312915ddaddafd90f4c96cc,fb76483c1e58b374d63a341b5b92ae05efb0ee7682645004f8c0989342bff1bd
+    reason: "Hex digest substrings in pinned bootstrap package fixture falsely match MX_PHONE; fingerprints pin exact matches"
+    owner: platform-security-testing
+
+  - path: fixtures/invalid/platform-authority-bootstrap-artifact-package-v2-sdk-pin-drift.json
+    line_pattern: '52[0-9]{10}'
+    pattern_id: MX_PHONE
+    match_sha256: 794d7ff94ef6a9350b2595639f3dc748db60796197d8ec0edc773bf664360be1,a4471e2aff3aa89080d8648046269235beb626e9bcee551d20911e6284707fcc,b7c49899268a800dc4378a52c288da4a80c337be9b0a3a334a795d032011436b,c0d8e7830e8f2a75f3d4fd7f25b6f622b73df84fe72beedc779413f64f8d6a09,f3b5ab2a9e7d70c9b3e09e1fa128bf734653c9edb312915ddaddafd90f4c96cc,fb76483c1e58b374d63a341b5b92ae05efb0ee7682645004f8c0989342bff1bd
+    reason: "Hex digest substrings in pinned bootstrap package fixture falsely match MX_PHONE; fingerprints pin exact matches"
+    owner: platform-security-testing
+
+  - path: fixtures/invalid/platform-authority-lambda-audit-repair-phase-b-precondition-change-set-receipt-v1-production-overclaim.json
+    line_pattern: '"resource_changes"\s*:\s*\['
+    pattern_id: RAW_PLAN_OUTPUT
+    match_sha256: 913f17dd03cecffe59c08d07606ecfb720fd6fad1c7c5c02deae3e864eb10b6b
+    reason: "Synthetic change-set receipt fixture key, not raw Terraform plan output"
+    owner: platform-security-testing
+
+  - path: fixtures/valid/platform-authority-lambda-audit-repair-delegation-change-set-receipt-v1-synthetic.json
+    line_pattern: '"resource_changes"\s*:\s*\['
+    pattern_id: RAW_PLAN_OUTPUT
+    match_sha256: 913f17dd03cecffe59c08d07606ecfb720fd6fad1c7c5c02deae3e864eb10b6b
+    reason: "Synthetic change-set receipt fixture key, not raw Terraform plan output"
+    owner: platform-security-testing
+
+  - path: fixtures/valid/platform-authority-lambda-audit-repair-delegation-live-receipt-v1-synthetic.json
+    line_pattern: '"resource_changes"\s*:\s*\['
+    pattern_id: RAW_PLAN_OUTPUT
+    match_sha256: 913f17dd03cecffe59c08d07606ecfb720fd6fad1c7c5c02deae3e864eb10b6b
+    reason: "Synthetic live receipt fixture key, not raw Terraform plan output"
+    owner: platform-security-testing
+
+  - path: fixtures/valid/platform-authority-lambda-audit-repair-pep-change-set-receipt-v1-synthetic.json
+    line_pattern: '"resource_changes"\s*:\s*\['
+    pattern_id: RAW_PLAN_OUTPUT
+    match_sha256: 913f17dd03cecffe59c08d07606ecfb720fd6fad1c7c5c02deae3e864eb10b6b
+    reason: "Synthetic change-set receipt fixture key, not raw Terraform plan output"
+    owner: platform-security-testing
+
+  - path: fixtures/valid/platform-authority-lambda-audit-repair-phase-b-precondition-change-set-receipt-v1-synthetic.json
+    line_pattern: '"resource_changes"\s*:\s*\['
+    pattern_id: RAW_PLAN_OUTPUT
+    match_sha256: 913f17dd03cecffe59c08d07606ecfb720fd6fad1c7c5c02deae3e864eb10b6b
+    reason: "Synthetic change-set receipt fixture key, not raw Terraform plan output"
+    owner: platform-security-testing
+
+  - path: tests/sentinel/test_security_sentinel.py
+    line_pattern: 'SYNTHETIC_CURP\s*=\s*"[A-Z0-9]+"'
+    pattern_id: CURP
+    match_sha256: 1be27448e0183024db1bbe2476152288cdc1561b70eb93f007063187cc8266bb
+    reason: "Detector unit-test synthetic CURP constant"
+    owner: platform-security-testing
+
+  - path: tests/sentinel/test_security_sentinel.py
+    line_pattern: 'SYNTHETIC_CURP\s*=\s*"[A-Z0-9]+"'
+    pattern_id: RFC
+    match_sha256: 4dd7916468dad54bb25c51f22036ec2b772cb200e883bbd5d597a3c59dfbdc33
+    reason: "RFC false-positive substring inside detector unit-test synthetic CURP"
+    owner: platform-security-testing
+
+  - path: tests/test_deployment/test_gug215_workforce_retirement_runtime.py
+    line_pattern: '"resource_changes"\s*:\s*\['
+    pattern_id: RAW_PLAN_OUTPUT
+    match_sha256: 913f17dd03cecffe59c08d07606ecfb720fd6fad1c7c5c02deae3e864eb10b6b
+    reason: "Synthetic retirement evidence fixture key, not raw Terraform plan output"
+    owner: platform-security-testing
+
+  - path: tests/test_deployment/test_gug221_lambda_audit_repair_change_set.py
+    line_pattern: '"resource_changes"\s*:\s*\['
+    pattern_id: RAW_PLAN_OUTPUT
+    match_sha256: 913f17dd03cecffe59c08d07606ecfb720fd6fad1c7c5c02deae3e864eb10b6b
+    reason: "Synthetic change-set test fixture key, not raw Terraform plan output"
+    owner: platform-security-testing
+
+  - path: tests/test_deployment/test_gug221_phase_b_execution_readback.py
+    line_pattern: '"resource_changes"\s*:\s*\['
+    pattern_id: RAW_PLAN_OUTPUT
+    match_sha256: 913f17dd03cecffe59c08d07606ecfb720fd6fad1c7c5c02deae3e864eb10b6b
+    reason: "Synthetic phase-B readback fixture key, not raw Terraform plan output"
+    owner: platform-security-testing
+
+  - path: tests/test_deployment/test_gug274_workforce_client.py
+    line_pattern: 'AROA[0-9]{11}'
+    pattern_id: RFC
+    match_sha256: 3f386fdec16e4811ee7583422dc428f00b9f3697f93d019c83abdb831ea24a6c,a100b9a3602fbee1b02279f4bc947af9fa1efe0ebcb51d1c6708d77fd7b8a375
+    reason: "Synthetic IAM RoleId prefixes used as session UserId fixtures; RFC false positives"
+    owner: platform-security-testing
+
+  - path: tests/test_deployment/test_gug274_workforce_transport.py
+    line_pattern: '\("authority_account_id",\s*[0-9]{11}\)'
+    pattern_id: NSS
+    match_sha256: 1ad33fa67c5aabb272971dde892dc29fd8bb59a801dddf8ec05091afb1d7f506
+    reason: "Negative-type authority_account_id fixture (int), not an NSS value"
+    owner: platform-security-testing
+
+  - path: tests/test_deployment/test_release_publication_io.py
+    line_pattern: 'aws_secret_access_key\s*=\s*"synthetic-secret"'
+    pattern_id: AWS_SECRET_KEY
+    match_sha256: 0f0b021f1f687b67107f00f9572849b718ebcc940c8242a89246ec4153857047
+    reason: "Synthetic boto3 session kwargs in unit test; no live secret"
+    owner: platform-security-testing
+
+  - path: tests/test_deployment/test_release_vsa_kms.py
+    line_pattern: 'aws_secret_access_key\s*=\s*"synthetic"'
+    pattern_id: AWS_SECRET_KEY
+    match_sha256: 3203e0633ff07d68537a9a71d80eebaa1a015d0dc7707a307ff1c5cfdd09358a
+    reason: "Synthetic boto3 session kwargs in unit test; no live secret"
+    owner: platform-security-testing
+
+  - path: tooling/platform_authority_identity_context_pep_runtime.py
+    line_pattern: '^\s*aws_secret_access_key\s*=\s*values\["SecretAccessKey"\],\s*'
+    pattern_id: AWS_SECRET_KEY
+    match_sha256: 099d147035c973a46c4d566fb7914f5f8777f61bdcd12c4e82cd3584063d0781
+    reason: "Temporary STS credential passed by reference into isolated SDK session; no literal secret stored"
+    owner: platform-security
+
+  - path: tooling/platform_authority_workforce_assignment.py
+    line_pattern: '^\s*aws_secret_access_key\s*=\s*credentials\["SecretAccessKey"\],\s*$'
+    pattern_id: AWS_SECRET_KEY
+    match_sha256: 20b9c7466226099787c758bec2833b89654c9b8d2ee825541efacfd9941e4e8a
+    reason: "Temporary STS credential passed by reference into isolated SDK session; no literal secret stored"
+    owner: platform-security
+
+  - path: tooling/platform_authority_workforce_client.py
+    line_pattern: '^\s*aws_access_key_id\s*=\s*frozen\.access_key,\s*aws_secret_access_key\s*=\s*frozen\.secret_key,\s*$'
+    pattern_id: AWS_SECRET_KEY
+    match_sha256: d4575dda46d4b14a9a131349f9e48007fd7870abd6a7b71b4f6d12a7f0018bb4
+    reason: "Temporary STS credential passed by reference to isolated SDK session factory; no literal secret stored"
+    owner: platform-security

@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-retirement-ledger-factory-receipt.v2.schema.json",
+  "title": "GUG-215 workforce factory outcome v2; only causal creation passes the separate consumer",
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_type",
+        "schema_version",
+        "status",
+        "reason_code",
+        "attempt",
+        "create_table_call_count",
+        "update_pitr_call_count",
+        "retry_permitted",
+        "next_required_action",
+        "request_sha256",
+        "contract_sha256",
+        "qualified_function_sha256",
+        "resource_policy_sha256",
+        "kms_key_arn_sha256",
+        "kms_key_metadata_sha256",
+        "revision_id_sha256",
+        "active_readback_attempt_count",
+        "policy_readback_attempt_count",
+        "pitr_readback_attempt_count",
+        "receipt_sha256",
+        "authorization_mode",
+        "deployment_authorized",
+        "production_status"
+      ],
+      "properties": {
+        "artifact_type": {
+          "const": "scanalyze.platform_authority.retirement_ledger_factory_receipt.v2"
+        },
+        "schema_version": {
+          "const": 2
+        },
+        "status": {
+          "enum": [
+            "CREATED",
+            "CREATED_RECONCILED"
+          ]
+        },
+        "reason_code": {
+          "const": "LEDGER_EXACT_FULL_READBACK"
+        },
+        "attempt": {
+          "const": 1
+        },
+        "create_table_call_count": {
+          "const": 1
+        },
+        "update_pitr_call_count": {
+          "const": 1
+        },
+        "retry_permitted": {
+          "const": false
+        },
+        "next_required_action": {
+          "const": "REVOKE_FACTORY_AUTHORITY"
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "contract_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "qualified_function_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "resource_policy_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "kms_key_arn_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "kms_key_metadata_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "revision_id_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "active_readback_attempt_count": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 60
+        },
+        "policy_readback_attempt_count": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 12
+        },
+        "pitr_readback_attempt_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "receipt_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "authorization_mode": {
+          "const": "WORKFORCE_SINGLE_OWNER_RETIREMENT_V1"
+        },
+        "deployment_authorized": {
+          "const": false
+        },
+        "production_status": {
+          "const": "NO-GO"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_type",
+        "schema_version",
+        "status",
+        "reason_code",
+        "attempt",
+        "create_table_call_count",
+        "update_pitr_call_count",
+        "retry_permitted",
+        "next_required_action",
+        "request_sha256",
+        "contract_sha256",
+        "qualified_function_sha256",
+        "resource_policy_sha256",
+        "kms_key_arn_sha256",
+        "kms_key_metadata_sha256",
+        "revision_id_sha256",
+        "active_readback_attempt_count",
+        "policy_readback_attempt_count",
+        "pitr_readback_attempt_count",
+        "receipt_sha256",
+        "authorization_mode",
+        "deployment_authorized",
+        "production_status"
+      ],
+      "properties": {
+        "artifact_type": {
+          "const": "scanalyze.platform_authority.retirement_ledger_factory_receipt.v2"
+        },
+        "schema_version": {
+          "const": 2
+        },
+        "status": {
+          "enum": [
+            "DENY",
+            "UNCERTAIN_RECONCILE_ONLY"
+          ]
+        },
+        "reason_code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{2,95}$"
+        },
+        "attempt": {
+          "const": 1
+        },
+        "create_table_call_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "update_pitr_call_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "retry_permitted": {
+          "const": false
+        },
+        "next_required_action": {
+          "enum": [
+            "STOP",
+            "REVOKE_THEN_READ_ONLY_RECONCILE"
+          ]
+        },
+        "request_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "contract_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "qualified_function_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "resource_policy_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "kms_key_arn_sha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kms_key_metadata_sha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revision_id_sha256": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/digest"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "active_readback_attempt_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60
+        },
+        "policy_readback_attempt_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "pitr_readback_attempt_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 12
+        },
+        "receipt_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "authorization_mode": {
+          "const": "WORKFORCE_SINGLE_OWNER_RETIREMENT_V1"
+        },
+        "deployment_authorized": {
+          "const": false
+        },
+        "production_status": {
+          "const": "NO-GO"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_type",
+        "schema_version",
+        "authorization_mode",
+        "deployment_authorized",
+        "production_status",
+        "status",
+        "reason_code",
+        "create_table_call_count",
+        "update_pitr_call_count",
+        "retry_permitted",
+        "next_required_action",
+        "contract_sha256",
+        "receipt_sha256"
+      ],
+      "properties": {
+        "artifact_type": {
+          "const": "scanalyze.platform_authority.retirement_ledger_factory_receipt.v2"
+        },
+        "schema_version": {
+          "const": 2
+        },
+        "authorization_mode": {
+          "const": "WORKFORCE_SINGLE_OWNER_RETIREMENT_V1"
+        },
+        "deployment_authorized": {
+          "const": false
+        },
+        "production_status": {
+          "const": "NO-GO"
+        },
+        "status": {
+          "const": "DENY"
+        },
+        "reason_code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{2,95}$"
+        },
+        "create_table_call_count": {
+          "const": 0
+        },
+        "update_pitr_call_count": {
+          "const": 0
+        },
+        "retry_permitted": {
+          "const": false
+        },
+        "next_required_action": {
+          "const": "STOP"
+        },
+        "contract_sha256": {
+          "$ref": "#/$defs/digest"
+        },
+        "receipt_sha256": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    }
+  ]
+}

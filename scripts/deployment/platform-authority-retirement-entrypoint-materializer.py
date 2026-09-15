@@ -32,6 +32,7 @@ from tooling.platform_authority_retirement_entrypoint_materializer import (  # n
     RetirementEntrypointMaterializationError,
     apply_materialization,
     build_materialization_plan,
+    build_workforce_materialization_plan,
     finalize_materialization_plan,
     reconcile_materialization,
     validate_execution_authorization,
@@ -494,6 +495,53 @@ def _load_authorization(
     return authorization
 
 
+def _cmd_workforce_plan(args: argparse.Namespace) -> int:
+    plan = build_workforce_materialization_plan(
+        intent=_read_private_json(args.intent), expected_intent_digest=args.expected_intent_digest,
+        package_manifest=_read_private_json(args.unsigned_package_manifest),
+        package_archive=_read_private_bytes(args.unsigned_package_archive, maximum_bytes=MAX_PRIVATE_ARCHIVE_BYTES),
+        signed_archive=_read_private_bytes(args.signed_package_archive, maximum_bytes=MAX_PRIVATE_ARCHIVE_BYTES),
+        signing_readback=_read_private_json(args.signing_readback),
+        expected_signing_readback_digest=args.expected_signing_readback_digest,
+        repo_root=REPO_ROOT, evaluated_at=_now(),
+    )
+    _write_private_json(args.plan_out, plan, exists_code="WORKFORCE_PLAN_ALREADY_EXISTS")
+    # A local plan is not an authorization or an installed authority receipt.
+    # Read back the public-byte plan before reporting preparation complete.
+    if _read_private_json(args.plan_out) != plan:
+        raise RetirementEntrypointMaterializationError("WORKFORCE_PLAN_PERSISTENCE_MISMATCH")
+    print(json.dumps({"status": plan["status"], "plan_digest": plan["plan_digest"],
+        "deployment_authorized": False, "aws_mutation_attempted": False,
+        "configuration_status": plan["compiled"]["function"]["configuration_status"]}, sort_keys=True))
+    return 0
+
+
+def _cmd_workforce_finalize_plan(args: argparse.Namespace) -> int:
+    from tooling.platform_authority_retirement_entrypoint_service_role_materializer import (
+        ServiceRoleMaterializationError, finalize_workforce_configuration_plan,
+    )
+    try:
+        plan = finalize_workforce_configuration_plan(
+            intent=_read_private_json(args.intent), expected_intent_digest=args.expected_intent_digest,
+            package_manifest=_read_private_json(args.unsigned_package_manifest),
+            package_archive=_read_private_bytes(args.unsigned_package_archive, maximum_bytes=MAX_PRIVATE_ARCHIVE_BYTES),
+            signed_archive=_read_private_bytes(args.signed_package_archive, maximum_bytes=MAX_PRIVATE_ARCHIVE_BYTES),
+            signing_readback=_read_private_json(args.signing_readback), expected_signing_readback_digest=args.expected_signing_readback_digest,
+            configuration_readback=_read_private_json(args.configuration_readback),
+            expected_configuration_readback_digest=args.expected_configuration_readback_digest,
+            repo_root=REPO_ROOT, evaluated_at=_now(),
+        )
+    except ServiceRoleMaterializationError as exc:
+        raise RetirementEntrypointMaterializationError(exc.code) from None
+    _write_private_json(args.plan_out, plan, exists_code="WORKFORCE_CONFIGURATION_PLAN_ALREADY_EXISTS")
+    if _read_private_json(args.plan_out) != plan:
+        raise RetirementEntrypointMaterializationError("WORKFORCE_PLAN_PERSISTENCE_MISMATCH")
+    print(json.dumps({"status": plan["status"], "plan_digest": plan["plan_digest"],
+        "configuration_digest": plan["configuration_digest"], "deployment_authorized": False,
+        "aws_mutation_attempted": False, "environment_size_bytes": plan["environment_size_bytes"]}, sort_keys=True))
+    return 0
+
+
 def _cmd_plan(args: argparse.Namespace) -> int:
     intent = _read_private_json(args.intent)
     manifest = _read_private_json(args.unsigned_package_manifest)
@@ -703,6 +751,25 @@ def _execution_common(parser: argparse.ArgumentParser) -> None:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    workforce = subparsers.add_parser("workforce-plan", help="Prepare the offline workforce policy and signed-source plan; never install")
+    workforce.add_argument("--intent", type=Path, required=True)
+    workforce.add_argument("--expected-intent-digest", required=True)
+    workforce.add_argument("--unsigned-package-manifest", type=Path, required=True)
+    workforce.add_argument("--unsigned-package-archive", type=Path, required=True)
+    workforce.add_argument("--signed-package-archive", type=Path, required=True)
+    workforce.add_argument("--signing-readback", type=Path, required=True)
+    workforce.add_argument("--expected-signing-readback-digest", required=True)
+    workforce.add_argument("--plan-out", type=Path, required=True)
+    workforce.set_defaults(handler=_cmd_workforce_plan)
+
+    workforce_finalize = subparsers.add_parser("workforce-finalize-plan", allow_abbrev=False, help="Rebuild the offline workforce plan and prepare schema2 from pinned readbacks; never install")
+    for flag in ("intent", "unsigned-package-manifest", "unsigned-package-archive", "signed-package-archive",
+                 "signing-readback", "configuration-readback", "plan-out"):
+        workforce_finalize.add_argument("--" + flag, type=Path, required=True)
+    for flag in ("expected-intent-digest", "expected-signing-readback-digest", "expected-configuration-readback-digest"):
+        workforce_finalize.add_argument("--" + flag, required=True)
+    workforce_finalize.set_defaults(handler=_cmd_workforce_finalize_plan)
 
     plan = subparsers.add_parser("plan", help="Build the exact private offline plan")
     plan.add_argument("--intent", type=Path, required=True)

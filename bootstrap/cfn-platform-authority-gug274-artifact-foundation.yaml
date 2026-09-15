@@ -1,0 +1,170 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private versioned storage for the GUG-274 bootstrap signing handoff.
+Parameters:
+  ArtifactBucketName:
+    Type: String
+    Default: scanalyze-gug274-artifacts-042360977644-us-east-1
+    AllowedValues: [scanalyze-gug274-artifacts-042360977644-us-east-1]
+  TemplateDigest:
+    Type: String
+    AllowedPattern: '^[a-f0-9]{64}$'
+    Description: SHA-256 of these exact reviewed template bytes, supplied by the installer.
+Rules:
+  ExactInstallationScope:
+    Assertions:
+      - Assert: !Equals [!Ref AWS::AccountId, '042360977644']
+        AssertDescription: Install only in the platform authority account.
+      - Assert: !Equals [!Ref AWS::Region, us-east-1]
+        AssertDescription: Install only in us-east-1.
+Resources:
+  ArtifactKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: Encrypt the Scanalyze GUG-274 unsigned and signed bootstrap artifacts.
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AccountKeyAdministration
+            Effect: Allow
+            Principal: {AWS: 'arn:aws:iam::042360977644:root'}
+            Action:
+              - kms:DescribeKey
+              - kms:GetKeyPolicy
+              - kms:PutKeyPolicy
+              - kms:EnableKeyRotation
+              - kms:DisableKeyRotation
+              - kms:GetKeyRotationStatus
+              - kms:ListResourceTags
+              - kms:TagResource
+              - kms:UntagResource
+            Resource: '*'
+          - Sid: AccountArtifactCryptographyViaExactS3Bucket
+            Effect: Allow
+            Principal: {AWS: 'arn:aws:iam::042360977644:root'}
+            Action: [kms:Decrypt, kms:GenerateDataKey]
+            Resource: '*'
+            Condition:
+              StringEquals:
+                kms:ViaService: s3.us-east-1.amazonaws.com
+                kms:EncryptionContext:aws:s3:arn: !Sub 'arn:aws:s3:::${ArtifactBucketName}'
+          - Sid: SignerArtifactCryptographyViaExactS3Bucket
+            Effect: Allow
+            Principal: {Service: signer.amazonaws.com}
+            Action: [kms:Decrypt, kms:GenerateDataKey]
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:SourceAccount: '042360977644'
+                kms:ViaService: s3.us-east-1.amazonaws.com
+                kms:EncryptionContext:aws:s3:arn: !Sub 'arn:aws:s3:::${ArtifactBucketName}'
+      Tags:
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-274}
+        - {Key: template_sha256, Value: !Ref TemplateDigest}
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref ArtifactBucketName
+      VersioningConfiguration: {Status: Enabled}
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt ArtifactKey.Arn
+      Tags:
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-274}
+        - {Key: template_sha256, Value: !Ref TemplateDigest}
+  ArtifactBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource: [!GetAtt ArtifactBucket.Arn, !Sub '${ArtifactBucket.Arn}/*']
+            Condition: {Bool: {aws:SecureTransport: 'false'}}
+          - Sid: DenyWritesOutsideBootstrapArtifactPrefixes
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            NotResource:
+              - !Sub '${ArtifactBucket.Arn}/scanalyze/platform-authority/gug-274/unsigned/*'
+              - !Sub '${ArtifactBucket.Arn}/scanalyze/platform-authority/gug-274/signed/*'
+          - Sid: DenyDeletingBootstrapArtifacts
+            Effect: Deny
+            Principal: '*'
+            Action: [s3:DeleteObject, s3:DeleteObjectVersion]
+            Resource: !Sub '${ArtifactBucket.Arn}/scanalyze/platform-authority/gug-274/*'
+          - Sid: DenyExplicitWrongEncryption
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${ArtifactBucket.Arn}/*'
+            Condition:
+              'Null': {s3:x-amz-server-side-encryption: 'false'}
+              StringNotEquals: {s3:x-amz-server-side-encryption: 'aws:kms'}
+          - Sid: DenyExplicitWrongKmsKey
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${ArtifactBucket.Arn}/*'
+            Condition:
+              'Null': {s3:x-amz-server-side-encryption-aws-kms-key-id: 'false'}
+              StringNotEquals:
+                s3:x-amz-server-side-encryption-aws-kms-key-id: !GetAtt ArtifactKey.Arn
+          - Sid: DenyExplicitKmsWithoutExactKeyHeader
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${ArtifactBucket.Arn}/*'
+            Condition:
+              StringEquals: {s3:x-amz-server-side-encryption: 'aws:kms'}
+              'Null': {s3:x-amz-server-side-encryption-aws-kms-key-id: 'true'}
+          - Sid: DenyCustomerProvidedEncryptionKeys
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${ArtifactBucket.Arn}/*'
+            Condition:
+              'Null': {s3:x-amz-server-side-encryption-customer-algorithm: 'false'}
+          - Sid: SignerReadsOnlyVersionedUnsignedPackages
+            Effect: Allow
+            Principal: {Service: signer.amazonaws.com}
+            Action: s3:GetObjectVersion
+            Resource: !Sub '${ArtifactBucket.Arn}/scanalyze/platform-authority/gug-274/unsigned/*'
+            Condition: {StringEquals: {aws:SourceAccount: '042360977644'}}
+          - Sid: SignerWritesOnlySignedPackages
+            Effect: Allow
+            Principal: {Service: signer.amazonaws.com}
+            Action: s3:PutObject
+            Resource: !Sub '${ArtifactBucket.Arn}/scanalyze/platform-authority/gug-274/signed/*'
+            Condition: {StringEquals: {aws:SourceAccount: '042360977644'}}
+Outputs:
+  ArtifactBucketName:
+    Value: !Ref ArtifactBucket
+  ArtifactKeyArn:
+    Value: !GetAtt ArtifactKey.Arn
+  ReviewedTemplateDigest:
+    Value: !Ref TemplateDigest

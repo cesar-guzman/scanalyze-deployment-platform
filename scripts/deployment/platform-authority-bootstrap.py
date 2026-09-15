@@ -11,6 +11,7 @@ direct CloudFormation or account-public-access mutation authority.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -29,6 +30,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _install_source_only_repository_imports(source_root: Path) -> None:
+    snapshot_installer = globals().get("_GUG274_SNAPSHOT_IMPORTER")
+    if snapshot_installer is not None:
+        # Only the reviewed PKCE launcher's in-memory bootstrap sets this
+        # namespace member. It has no CLI flag, environment or disk-file input.
+        if not callable(snapshot_installer):
+            raise ValueError("REPOSITORY_SOURCE_SNAPSHOT_INVALID")
+        snapshot_installer(source_root)
+        return
     boundary = source_root / "tooling/platform_authority_source_only_import.py"
     if boundary.is_symlink() or not boundary.is_file():
         raise ValueError("REPOSITORY_SOURCE_IMPORT_BOUNDARY_INVALID")
@@ -174,6 +183,47 @@ def _strict_object(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise BootstrapAuthorizationError("operational JSON must be an object")
     return value
+
+
+def _validate_identity_grant_ready_descriptor(args: argparse.Namespace) -> None:
+    """Reject invalid opt-in synchronization before any provider effect."""
+    ready = getattr(args, "identity_grant_ready_fd", None)
+    if ready is None:
+        return
+    grant = getattr(args, "identity_grant_fd", None)
+    if type(ready) is not int or type(grant) is not int or ready < 3 or grant < 3 or ready == grant:
+        raise BootstrapAuthorizationError("identity grant readiness descriptor is invalid")
+    try:
+        for descriptor, writable in ((ready, True), (grant, False)):
+            metadata = os.fstat(descriptor)
+            access = fcntl.fcntl(descriptor, fcntl.F_GETFL) & os.O_ACCMODE
+            if (
+                not (stat.S_ISFIFO(metadata.st_mode) or stat.S_ISSOCK(metadata.st_mode))
+                or os.isatty(descriptor)
+                or (writable and access == os.O_RDONLY)
+                or (not writable and access == os.O_WRONLY)
+            ):
+                raise BootstrapAuthorizationError("identity grant readiness descriptor is invalid")
+    except OSError:
+        raise BootstrapAuthorizationError("identity grant readiness descriptor is unavailable") from None
+
+
+def _signal_identity_grant_ready(args: argparse.Namespace, operation: str) -> None:
+    ready = getattr(args, "identity_grant_ready_fd", None)
+    if ready is None:
+        return
+    _validate_identity_grant_ready_descriptor(args)
+    payload = json.dumps({
+        "schema_version": "1", "record_type": "platform_authority_bootstrap_grant_ready",
+        "operation": operation, "pid": os.getpid(),
+    }, sort_keys=True, separators=(",", ":")).encode("ascii")
+    try:
+        if os.write(ready, payload) != len(payload):
+            raise BootstrapAuthorizationError("identity grant readiness signal failed")
+    except OSError:
+        raise BootstrapAuthorizationError("identity grant readiness signal failed") from None
+    finally:
+        os.close(ready)
 
 
 def _read_identity_grant_json(descriptor_number: int) -> str:
@@ -925,6 +975,7 @@ def _cmd_plan(args: argparse.Namespace) -> None:
         initiator_id=args.initiator_id,
         artifact_nonce=secrets.token_hex(32),
     )
+    _signal_identity_grant_ready(args, "plan")
     identity_grant_json = _read_identity_grant_json(args.identity_grant_fd)
     try:
         authority.anchor_plan(plan, identity_grant_json)
@@ -960,6 +1011,7 @@ def _cmd_approve(args: argparse.Namespace) -> None:
         expires_at=min(plan_expires, now + timedelta(minutes=30)),
         approval_nonce=secrets.token_hex(32),
     )
+    _signal_identity_grant_ready(args, "approve")
     identity_grant_json = _read_identity_grant_json(args.identity_grant_fd)
     try:
         authority.approve_plan(plan, approval, identity_grant_json)
@@ -1141,6 +1193,7 @@ def _cmd_apply(args: argparse.Namespace) -> None:
         caller_region=binding.region,
     )
     authority = _artifact_authority_client(binding)
+    _signal_identity_grant_ready(args, "apply")
     identity_grant_json = _read_identity_grant_json(args.identity_grant_fd)
     try:
         authorize_bootstrap_apply_v2(
@@ -1266,6 +1319,7 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--change-set-name", required=True)
     plan.add_argument("--plan-out", type=Path, required=True)
     plan.add_argument("--identity-grant-fd", type=int, required=True)
+    plan.add_argument("--identity-grant-ready-fd", type=int)
     plan.add_argument("--allow-change-set-write", action="store_true")
     plan.set_defaults(handler=_cmd_plan)
 
@@ -1275,6 +1329,7 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("--approver-id", required=True)
     approve.add_argument("--approval-out", type=Path, required=True)
     approve.add_argument("--identity-grant-fd", type=int, required=True)
+    approve.add_argument("--identity-grant-ready-fd", type=int)
     approve.set_defaults(handler=_cmd_approve)
 
     apply_parser = subparsers.add_parser("apply", help="Execute the exact approved change set once")
@@ -1284,6 +1339,7 @@ def _parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--verification-out", type=Path, required=True)
     apply_parser.add_argument("--backend-config-out", type=Path, required=True)
     apply_parser.add_argument("--identity-grant-fd", type=int, required=True)
+    apply_parser.add_argument("--identity-grant-ready-fd", type=int)
     apply_parser.add_argument("--allow-bootstrap-apply", action="store_true")
     apply_parser.set_defaults(handler=_cmd_apply)
 
@@ -1308,6 +1364,7 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = _parser().parse_args()
     try:
+        _validate_identity_grant_ready_descriptor(args)
         args.handler(args)
     except (BootstrapAuthorizationError, AwsCliError) as exc:
         code = getattr(exc, "code", "BOOTSTRAP_OPERATION_DENIED")

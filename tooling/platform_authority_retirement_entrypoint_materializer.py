@@ -910,7 +910,8 @@ def _validate_version_id(value: object, code: str) -> str:
 
 
 def _validate_artifact_object(
-    value: Mapping[str, Any], *, signed: bool
+    value: Mapping[str, Any], *, signed: bool,
+    unsigned_artifact_type: str = "scanalyze.platform_authority.change_set_retirement_package.v1",
 ) -> None:
     required = {
         "bucket",
@@ -962,7 +963,7 @@ def _validate_artifact_object(
     if not signed:
         if (
             value.get("artifact_type")
-            != "scanalyze.platform_authority.change_set_retirement_package.v1"
+            != unsigned_artifact_type
             or value.get("work_package") != "GUG-215"
         ):
             raise RetirementEntrypointMaterializationError("UNSIGNED_ARTIFACT_INVALID")
@@ -971,7 +972,9 @@ def _validate_artifact_object(
         )
 
 
-def _validate_artifact_signing_contract(contract: Mapping[str, Any]) -> None:
+def _validate_artifact_signing_contract(
+    contract: Mapping[str, Any], *, workforce: bool = False,
+) -> None:
     if set(contract) != {
         "contract_version",
         "unsigned_source",
@@ -990,7 +993,9 @@ def _validate_artifact_signing_contract(contract: Mapping[str, Any]) -> None:
         raise RetirementEntrypointMaterializationError(
             "ARTIFACT_SIGNING_CONTRACT_NESTING_INVALID"
         )
-    _validate_artifact_object(unsigned, signed=False)
+    _validate_artifact_object(unsigned, signed=False, unsigned_artifact_type=(
+        "scanalyze.platform_authority.change_set_retirement_package.v2" if workforce
+        else "scanalyze.platform_authority.change_set_retirement_package.v1"))
     _validate_artifact_object(signed, signed=True)
     assert isinstance(signer, Mapping) and isinstance(code_signing, Mapping)
     if set(signer) != {
@@ -1455,6 +1460,255 @@ def validate_materialization_intent(intent: Mapping[str, Any]) -> None:
             "PRE_FUNCTION_BINDING_DIGEST_MISMATCH"
         )
     _self_digest(intent, "intent_digest", "INTENT_DIGEST_MISMATCH")
+
+
+WORKFORCE_MODE = "WORKFORCE_SINGLE_OWNER_RETIREMENT_V1"
+WORKFORCE_INTENT_TYPE = "scanalyze.platform_authority.workforce_materialization_intent.v1"
+WORKFORCE_PLAN_TYPE = "scanalyze.platform_authority.workforce_materialization_plan.v1"
+WORKFORCE_POLICY_PATH = Path("policies/iam/platform-authority-gug215-workforce-broker-boundary.json")
+WORKFORCE_MATERIALIZER_PATHS = (
+    Path("tooling/platform_authority_retirement_entrypoint_materializer.py"),
+    Path("tooling/platform_authority_retirement_entrypoint_service_role_materializer.py"),
+    Path("scripts/deployment/platform-authority-retirement-entrypoint-materializer.py"),
+    WORKFORCE_POLICY_PATH,
+)
+
+
+def _workforce_snapshot(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Freeze JSON input before hashes, validation and compilation; never log it."""
+    try:
+        if type(value) is not dict:
+            raise ValueError
+        payload = json.dumps(value, allow_nan=False, ensure_ascii=True)
+        if len(payload) > 2 * 1024 * 1024:
+            raise ValueError
+        return json.loads(payload)
+    except (TypeError, ValueError, RecursionError):
+        raise RetirementEntrypointMaterializationError("WORKFORCE_DOCUMENT_INVALID") from None
+
+
+def _workforce_fields(value: object, keys: set[str]) -> dict[str, Any]:
+    if type(value) is not dict or set(value) != keys:
+        raise RetirementEntrypointMaterializationError("WORKFORCE_FIELDS_INVALID")
+    return value
+
+
+def _workforce_source_snapshot(
+    *, source: Mapping[str, Any], repo_root: Path, manifest: Mapping[str, Any],
+) -> tuple[bytes, dict[str, str]]:
+    from tooling.platform_authority_change_set_retirement_package import verify_clean_source_commit
+
+    # The existing clean HEAD/blob gate remains mandatory, including all eight
+    # sources and package provenance. No CLI skip, copied checkout or build here.
+    try:
+        sources = verify_clean_source_commit(source_root=repo_root, source_commit=source["commit"],
+                                            authorization_mode=WORKFORCE_MODE)
+    except RetirementPackageError:
+        raise RetirementEntrypointMaterializationError("WORKFORCE_SOURCE_REJECTED") from None
+    if str(_git(repo_root, "rev-parse", "HEAD^{tree}")).strip() != source["tree"]:
+        raise RetirementEntrypointMaterializationError("SOURCE_SNAPSHOT_MISMATCH")
+    expected_entries = [{"path": path.as_posix(), "sha256": sha256(payload).hexdigest(), "size_bytes": len(payload)}
+                        for path, payload in sorted(sources.items(), key=lambda item: item[0].as_posix())]
+    if manifest["source_commit"] != source["commit"] or manifest["entries"] != expected_entries:
+        raise RetirementEntrypointMaterializationError("WORKFORCE_SOURCE_BYTES_MISMATCH")
+    blobs = {}
+    for relative in WORKFORCE_MATERIALIZER_PATHS:
+        blob = bytes(_git(repo_root, "show", f"{source['commit']}:{relative.as_posix()}", text=False))
+        candidate = repo_root / relative
+        if candidate.is_symlink() or not candidate.is_file() or candidate.read_bytes() != blob:
+            raise RetirementEntrypointMaterializationError("WORKFORCE_COMPILER_SOURCE_DRIFT")
+        blobs[relative] = blob
+    policy = blobs[WORKFORCE_POLICY_PATH]
+    if "sha256:" + sha256(policy).hexdigest() != source["policy_template_sha256"]:
+        raise RetirementEntrypointMaterializationError("WORKFORCE_POLICY_SOURCE_MISMATCH")
+    # A second observation rejects movement during capture, including hidden
+    # file drift already checked against each reviewed Git blob above.
+    if (str(_git(repo_root, "rev-parse", "HEAD")).strip() != source["commit"]
+            or str(_git(repo_root, "status", "--porcelain=v1", "--untracked-files=all"))):
+        raise RetirementEntrypointMaterializationError("WORKFORCE_SOURCE_CHANGED")
+    return policy, {path.as_posix(): "sha256:" + sha256(blob).hexdigest() for path, blob in blobs.items()}
+
+
+def _validate_workforce_intent(intent: dict[str, Any], *, now: datetime) -> None:
+    _workforce_fields(intent, {"record_type", "schema_version", "authorization_mode", "authority_account_id", "region",
+        "source", "source_ci_evidence_digest", "target", "api_id", "owner", "roles", "reader", "effect_window", "ledger_kms_key", "artifact_signing_contract"})
+    if (intent["record_type"] != WORKFORCE_INTENT_TYPE or type(intent["schema_version"]) is not int
+            or intent["schema_version"] != 1 or intent["authorization_mode"] != WORKFORCE_MODE
+            or intent["authority_account_id"] != AUTHORITY_ACCOUNT_ID or intent["region"] != REGION):
+        raise RetirementEntrypointMaterializationError("WORKFORCE_SCOPE_INVALID")
+    source = _workforce_fields(intent["source"], {"commit", "tree", "policy_template_sha256"})
+    if (type(source["commit"]) is not str or _COMMIT_RE.fullmatch(source["commit"]) is None
+            or type(source["tree"]) is not str or _TREE_RE.fullmatch(source["tree"]) is None):
+        raise RetirementEntrypointMaterializationError("SOURCE_BINDING_INVALID")
+    _require_digest(source["policy_template_sha256"], "WORKFORCE_POLICY_PIN_INVALID")
+    _require_digest(intent["source_ci_evidence_digest"], "WORKFORCE_SOURCE_CI_PIN_INVALID")
+    target = _workforce_fields(intent["target"], {"stack_id", "change_set_id", "expected_template_sha256", "expected_evidence_sha256"})
+    for key, pattern in {
+        "stack_id": r"arn:aws:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-state-backend/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}",
+        "change_set_id": r"arn:aws:cloudformation:us-east-1:042360977644:changeSet/scanalyze-platform-authority-bootstrap-[0-9]{14}/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}",
+    }.items():
+        if type(target[key]) is not str or re.fullmatch(pattern, target[key]) is None:
+            raise RetirementEntrypointMaterializationError("WORKFORCE_TARGET_INVALID")
+    for key in ("expected_template_sha256", "expected_evidence_sha256"):
+        _require_digest(target[key], "WORKFORCE_TARGET_PIN_INVALID")
+    if type(intent["api_id"]) is not str or re.fullmatch(r"[a-z0-9]{10}", intent["api_id"]) is None:
+        raise RetirementEntrypointMaterializationError("WORKFORCE_API_INVALID")
+    owner = _workforce_fields(intent["owner"], {"operator_id", "subject_digest", "assignment_readback_digest"})
+    if owner["operator_id"] != "cesar-guzman":
+        raise RetirementEntrypointMaterializationError("WORKFORCE_OWNER_INVALID")
+    for key in ("subject_digest", "assignment_readback_digest"):
+        _require_digest(owner[key], "WORKFORCE_OWNER_PIN_INVALID")
+    roles = _workforce_fields(intent["roles"], {"classify", "retire"})
+    for operation, name in {"classify": "ScanalyzeAuthorityRetireClass", "retire": "ScanalyzeAuthorityRetireApprove"}.items():
+        role = _workforce_fields(roles[operation], {"role_arn", "role_id", "permission_set_arn", "policy_sha256", "trust_sha256"})
+        patterns = {
+            "role_arn": r"arn:aws:iam::042360977644:role/aws-reserved/sso\.amazonaws\.com/(?:us-east-1/)?AWSReservedSSO_" + name + r"_[0-9a-f]{16}",
+            "role_id": r"AROA[A-Z0-9]{17}",
+            "permission_set_arn": r"arn:aws:sso:::permissionSet/ssoins-7223feaee61e2475/ps-[a-z0-9]{16}",
+        }
+        if any(type(role[key]) is not str or re.fullmatch(pattern, role[key]) is None for key, pattern in patterns.items()):
+            raise RetirementEntrypointMaterializationError("WORKFORCE_ROLE_INVALID")
+        for key in ("policy_sha256", "trust_sha256"):
+            _require_digest(role[key], "WORKFORCE_ROLE_PIN_INVALID")
+    if any(roles["classify"][key] == roles["retire"][key] for key in ("role_id", "permission_set_arn")):
+        raise RetirementEntrypointMaterializationError("WORKFORCE_ROLE_COLLISION")
+    reader = _workforce_fields(intent["reader"], {"role_arn", "readback_digest", "not_before", "not_after"})
+    if reader["role_arn"] != "arn:aws:iam::839393571433:role/ScanalyzeGug215WorkforceAssignmentReader":
+        raise RetirementEntrypointMaterializationError("WORKFORCE_READER_INVALID")
+    _require_digest(reader["readback_digest"], "WORKFORCE_READER_PIN_INVALID")
+    if intent["ledger_kms_key"] is not None:
+        key = _workforce_fields(intent["ledger_kms_key"], {"arn", "readback_digest"})
+        if type(key["arn"]) is not str or _KMS_ARN_RE.fullmatch(key["arn"]) is None:
+            raise RetirementEntrypointMaterializationError("WORKFORCE_LEDGER_KEY_INVALID")
+        _require_digest(key["readback_digest"], "WORKFORCE_LEDGER_KEY_PIN_INVALID")
+    for key in ("not_before", "not_after"):
+        if type(reader[key]) is not str or re.fullmatch(r"20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", reader[key]) is None:
+            raise RetirementEntrypointMaterializationError("WORKFORCE_READER_WINDOW_INVALID")
+    start, end = (_parse_timestamp(reader[key], "WORKFORCE_READER_WINDOW_INVALID") for key in ("not_before", "not_after"))
+    if not start <= now < end or end - start > timedelta(hours=24):
+        raise RetirementEntrypointMaterializationError("WORKFORCE_READER_WINDOW_INVALID")
+    if intent["effect_window"] is not None:
+        effect = _workforce_fields(intent["effect_window"], {"authorized_at", "not_before", "expires_at"})
+        if any(type(value) is not str or re.fullmatch(r"20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", value) is None for value in effect.values()):
+            raise RetirementEntrypointMaterializationError("WORKFORCE_EFFECT_WINDOW_INVALID")
+        created, effect_start, effect_end = (_parse_timestamp(effect[key], "WORKFORCE_EFFECT_WINDOW_INVALID")
+                                           for key in ("authorized_at", "not_before", "expires_at"))
+        if (not created <= now < effect_end or not created <= effect_start < effect_end
+                or effect_end - effect_start > timedelta(minutes=15) or effect_start - created > timedelta(hours=1)
+                or not start <= effect_start or effect_end > end - timedelta(minutes=15)):
+            raise RetirementEntrypointMaterializationError("WORKFORCE_EFFECT_WINDOW_INVALID")
+    contract = _workforce_fields(intent["artifact_signing_contract"],
+        {"contract_version", "unsigned_source", "signer", "signed_destination", "code_signing_config"})
+    if type(contract["contract_version"]) is not int:
+        raise RetirementEntrypointMaterializationError("ARTIFACT_SIGNING_CONTRACT_FIELDS_INVALID")
+    _validate_artifact_signing_contract(contract, workforce=True)
+    if (contract["unsigned_source"]["key"] != "scanalyze/platform-authority/gug-215/unsigned/"
+            + source["commit"] + "/scanalyze-gug215-change-set-retirement-broker.zip"):
+        raise RetirementEntrypointMaterializationError("UNSIGNED_ARTIFACT_SOURCE_COMMIT_MISMATCH")
+    if _parse_timestamp(contract["signer"]["signature_expires_at"], "ARTIFACT_SIGNATURE_EXPIRY_INVALID") <= now:
+        raise RetirementEntrypointMaterializationError("WORKFORCE_SIGNATURE_EXPIRED")
+
+
+def build_workforce_materialization_plan(
+    *, intent: Mapping[str, Any], expected_intent_digest: str,
+    package_manifest: Mapping[str, Any], package_archive: bytes, signed_archive: bytes,
+    signing_readback: Mapping[str, Any], expected_signing_readback_digest: str,
+    repo_root: Path, evaluated_at: datetime,
+) -> dict[str, Any]:
+    """Prepare the integrated workforce installation contract; never execute it.
+
+    External pins must originate in the protected review channel. Equality is
+    custody/integrity, not authentication of a collector, owner or caller. No
+    signature is created here. Captured AWS signing evidence is checked offline;
+    source/CI, signing, assignments and provider state need connected revalidation
+    before any future installer effect. Missing RoleId/version stay absent.
+    """
+    try:
+        if (type(evaluated_at) is not datetime or evaluated_at.tzinfo is None
+                or evaluated_at.utcoffset() != timedelta(0) or evaluated_at.microsecond):
+            raise RetirementEntrypointMaterializationError("CLOCK_INVALID")
+        now = _parse_timestamp(timestamp(evaluated_at), "CLOCK_INVALID")
+        frozen = _workforce_snapshot(intent)
+        manifest = _workforce_snapshot(package_manifest)
+        evidence = _workforce_snapshot(signing_readback)
+        for doc, pin in ((frozen, expected_intent_digest), (evidence, expected_signing_readback_digest)):
+            if canonical_digest(doc) != _require_digest(pin, "WORKFORCE_EXTERNAL_PIN_INVALID"):
+                raise RetirementEntrypointMaterializationError("WORKFORCE_EXTERNAL_PIN_MISMATCH")
+        _validate_workforce_intent(frozen, now=now)
+        if type(package_archive) is not bytes or type(signed_archive) is not bytes:
+            raise RetirementEntrypointMaterializationError("WORKFORCE_ARCHIVE_INVALID")
+        if max(len(package_archive), len(signed_archive)) > MAX_ARTIFACT_BYTES:
+            raise RetirementEntrypointMaterializationError("WORKFORCE_ARCHIVE_TOO_LARGE")
+        validate_retirement_package_manifest(manifest, archive=package_archive, authorization_mode=WORKFORCE_MODE)
+        contract = frozen["artifact_signing_contract"]
+        unsigned, signed = contract["unsigned_source"], contract["signed_destination"]
+        for key in ("artifact_type", "work_package", "manifest_digest", "archive_sha256", "lambda_code_sha256", "archive_size_bytes"):
+            if unsigned[key] != manifest[key]:
+                raise RetirementEntrypointMaterializationError("UNSIGNED_PACKAGE_CONTRACT_MISMATCH")
+        for expected, payload in ((unsigned, package_archive), (signed, signed_archive)):
+            if len(payload) != expected["archive_size_bytes"] or sha256(payload).hexdigest() != expected["archive_sha256"]:
+                raise RetirementEntrypointMaterializationError("WORKFORCE_ARTIFACT_BYTES_MISMATCH")
+        if _zip_member_payloads(package_archive, code="UNSIGNED_ARTIFACT_ZIP_INVALID") != _zip_member_payloads(
+                signed_archive, code="SIGNED_ARTIFACT_ZIP_INVALID"):
+            raise RetirementEntrypointMaterializationError("SIGNED_ARTIFACT_SEMANTIC_MISMATCH")
+        _workforce_fields(evidence, {"schema_version", "observed_at", "account_id", "region", "unsigned_request", "signed_request",
+            "signing_job", "signing_profile", "bucket_versioning", "unsigned_head", "signed_head", "signed_versions", "code_signing_config"})
+        if (type(evidence["schema_version"]) is not int or evidence["schema_version"] != 1
+                or evidence["account_id"] != AUTHORITY_ACCOUNT_ID or evidence["region"] != REGION
+                or _parse_timestamp(evidence["observed_at"], "WORKFORCE_EVIDENCE_TIME_INVALID") > now
+                or evidence["bucket_versioning"].get("Status") != "Enabled"):
+            raise RetirementEntrypointMaterializationError("WORKFORCE_EVIDENCE_INVALID")
+        for label, expected in (("unsigned", unsigned), ("signed", signed)):
+            if evidence[label + "_request"] != {"Bucket": expected["bucket"], "Key": expected["key"],
+                    "VersionId": expected["version_id"], "ExpectedBucketOwner": AUTHORITY_ACCOUNT_ID}:
+                raise RetirementEntrypointMaterializationError("WORKFORCE_ARTIFACT_READ_SCOPE_MISMATCH")
+            _validate_artifact_metadata(evidence[label + "_head"], expected, code="WORKFORCE_ARTIFACT_METADATA_MISMATCH")
+        versions = evidence["signed_versions"]
+        if (not isinstance(versions, dict) or versions.get("IsTruncated") is not False
+                or any(key in versions for key in ("NextKeyMarker", "NextVersionIdMarker"))
+                or versions.get("Name") != signed["bucket"] or versions.get("Prefix") != signed["key"]
+                or versions.get("DeleteMarkers", []) != [] or len(versions.get("Versions", [])) != 1):
+            raise RetirementEntrypointMaterializationError("SIGNED_ARTIFACT_VERSION_LIST_MISMATCH")
+        version = versions["Versions"][0]
+        if any(version.get(key) != value for key, value in {"Key": signed["key"], "VersionId": signed["version_id"],
+                "IsLatest": True, "Size": signed["archive_size_bytes"]}.items()):
+            raise RetirementEntrypointMaterializationError("SIGNED_ARTIFACT_VERSION_LIST_MISMATCH")
+        _validate_signing_job(evidence["signing_job"], contract)
+        _validate_signing_profile(evidence["signing_profile"], contract)
+        if (evidence["signing_profile"].get("profileVersion") != contract["signer"]["profile_version_id"]
+                or evidence["signing_profile"].get("profileVersionArn") != contract["signer"]["profile_version_arn"]):
+            raise RetirementEntrypointMaterializationError("WORKFORCE_SIGNER_VERSION_MISMATCH")
+        _validate_code_signing_config(evidence["code_signing_config"], contract)
+        policy_bytes, compiler_sources = _workforce_source_snapshot(source=frozen["source"], repo_root=repo_root, manifest=manifest)
+        from tooling.platform_authority_retirement_entrypoint_service_role_materializer import compile_workforce_broker_contract
+        compiled = compile_workforce_broker_contract(intent=frozen, package_manifest=manifest,
+                                                     policy_template=policy_bytes, evaluated_at=now)
+        result = {
+            "record_type": WORKFORCE_PLAN_TYPE, "schema_version": 1, "authorization_mode": WORKFORCE_MODE,
+            "status": "PREPARED_NOT_AUTHORIZED_NOT_INSTALLED", "deployment_authorized": False,
+            "independent_approval_present": False, "evaluated_at": timestamp(now),
+            "authority_account_id": AUTHORITY_ACCOUNT_ID, "region": REGION, "intended_environment": "production",
+            "pin_semantics": "INTEGRITY_ONLY_REQUIRES_PROTECTED_REVIEW_ORIGIN",
+            "source_ci_status": "PENDING_CONNECTED_REVALIDATION",
+            "signature_status": "CAPTURED_PROVIDER_EVIDENCE_CHECKED_OFFLINE_NOT_CRYPTOGRAPHIC_VERIFICATION",
+            "intent_digest": expected_intent_digest, "signing_readback_digest": expected_signing_readback_digest,
+            "source": frozen["source"], "source_ci_evidence_digest": frozen["source_ci_evidence_digest"],
+            "compiler_sources": compiler_sources, "package_manifest_digest": manifest["manifest_digest"],
+            "artifact_signing_contract": contract, "target": frozen["target"], "api_id": frozen["api_id"],
+            "reader": frozen["reader"], "owner": frozen["owner"], "roles": frozen["roles"], "effect_window": frozen["effect_window"],
+            "ledger_kms_key": frozen["ledger_kms_key"],
+            "compiled": compiled,
+            "pending": ["CONNECTED_SOURCE_CI_AND_SIGNING_REVALIDATION", "EXISTING_INSTALLATION_AUTHORITY_AND_ATTEMPT_GATES",
+                "BROKER_ROLE_AND_POLICY_READBACK", "SAME_RETIREMENT_LEDGER_PRODUCTION_CONTROLS",
+                "REFRESH_ASSIGNMENTS_AND_SELECT_EFFECT_WINDOW", "REVIEW_PERMISSION_SET_EXACT_IAM_ROUTE_GRANTS", "SCHEMA2_CONFIGURATION_AND_ENV_QUOTA",
+                "PUBLISH_AND_READ_BACK_REAL_NUMERIC_VERSION", "VERSION_POLICY_AND_THREE_IAM_ROUTES_DEPLOYED_EXPORT"],
+        }
+        result["plan_digest"] = canonical_digest(result)
+        return result
+    except RetirementEntrypointMaterializationError:
+        raise
+    except Exception:
+        raise RetirementEntrypointMaterializationError("WORKFORCE_PLAN_REJECTED") from None
 
 
 def build_materialization_plan(

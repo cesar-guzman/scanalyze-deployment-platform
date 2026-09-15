@@ -7,11 +7,11 @@
   "authority_account_id": "042360977644",
   "region": "us-east-1",
   "profile_name": "scanalyze_gug274_bootstrap_artifact_authority",
-  "profile_version_id": null,
-  "profile_version_arn": null,
+  "profile_version_id": "fo5PB1XOji",
+  "profile_version_arn": "arn:aws:signer:us-east-1:042360977644:/signing-profiles/scanalyze_gug274_bootstrap_artifact_authority/fo5PB1XOji",
   "signing_platform": "AWSLambda-SHA384-ECDSA",
   "code_signing_policy": "Enforce",
-  "configuration_status": "NOT_CONFIGURED",
+  "configuration_status": "CONFIGURED_REVIEWED",
   "activation_authorized": false,
   "production_status": "NO-GO"
 }

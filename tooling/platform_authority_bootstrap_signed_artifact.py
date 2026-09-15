@@ -28,6 +28,9 @@ from tooling.platform_authority_bootstrap_artifact_package import (
     EXPECTED_BOTO3_VERSION,
     EXPECTED_BOTOCORE_VERSION,
     PACKAGE_PATHS,
+    MAX_ENTRY_BYTES,
+    MAX_PACKAGE_ENTRIES,
+    validate_sdk_entries,
     PRODUCTION_STATUS,
     SIGNING_PROFILE_NAME,
     BootstrapArtifactPackageError,
@@ -70,7 +73,7 @@ TRUST_ROOT_CONTRACT_PATH = Path(
 TRUST_ROOT_CONTRACT_DOMAIN = (
     b"scanalyze.platform-authority.bootstrap-artifact-signing-trust-root.v1"
 )
-MAX_ARCHIVE_BYTES = 10 * 1024 * 1024
+MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
 MAX_S3_VERSION_PAGES = 100
 RECEIPT_TTL = timedelta(minutes=15)
 MAX_CLOCK_SKEW = timedelta(minutes=2)
@@ -468,9 +471,17 @@ def _validate_signed_archive(
         ):
             raise BootstrapSignedArtifactError("UNSIGNED_MANIFEST_INVALID")
         expected[entry["path"]] = entry
-    expected_paths = [path.as_posix() for path in PACKAGE_PATHS]
-    if list(expected) != expected_paths:
+    runtime = unsigned_manifest.get("runtime_dependencies")
+    sdk_manifest = runtime.get("sdk_entries") if isinstance(runtime, Mapping) else None
+    try:
+        validate_sdk_entries(sdk_manifest)
+    except ValueError:
+        raise BootstrapSignedArtifactError("UNSIGNED_MANIFEST_SDK_INVALID") from None
+    expected_paths = sorted([path.as_posix() for path in PACKAGE_PATHS] + [entry["path"] for entry in sdk_manifest])
+    if list(expected) != expected_paths or len(expected_paths) > MAX_PACKAGE_ENTRIES:
         raise BootstrapSignedArtifactError("UNSIGNED_MANIFEST_PATH_SET_INVALID")
+    if any(expected[entry["path"]] != entry for entry in sdk_manifest):
+        raise BootstrapSignedArtifactError("UNSIGNED_MANIFEST_SDK_INVALID")
     try:
         with ZipFile(BytesIO(signed_archive), mode="r") as archive:
             names = archive.namelist()
@@ -478,9 +489,17 @@ def _validate_signed_archive(
                 raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_DUPLICATE_PATH")
             if names != expected_paths:
                 raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_PATH_SET_INVALID")
+            total = 0
             for item in archive.infolist():
                 unix_mode = item.external_attr >> 16
-                if item.flag_bits & 0x1 or unix_mode & 0o170000 == 0o120000:
+                expected_size = expected[item.filename].get("size_bytes")
+                if (item.flag_bits & 0x1 or unix_mode & 0o170000 == 0o120000
+                    or type(expected_size) is not int or not 0 <= expected_size <= MAX_ENTRY_BYTES
+                    or item.file_size != expected_size or item.compress_size > MAX_ARCHIVE_BYTES
+                    or item.compress_type not in (0, 8)):
+                    raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_ENTRY_UNSAFE")
+                total += item.file_size
+                if total > MAX_ARCHIVE_BYTES:
                     raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_ENTRY_UNSAFE")
             for path, entry in expected.items():
                 payload = archive.read(path)

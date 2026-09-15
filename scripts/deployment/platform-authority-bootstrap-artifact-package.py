@@ -62,6 +62,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--source-commit", required=True)
+    parser.add_argument("--sdk-runtime-root", type=Path, required=True, help="Dedicated external SDK closure authenticated against committed hashes")
     parser.add_argument("--expected-boto3-version", required=True)
     parser.add_argument("--expected-botocore-version", required=True)
     parser.add_argument(
@@ -79,6 +80,7 @@ def main() -> int:
         archive, manifest, evidence = write_bootstrap_artifact_package(
             source_root=ROOT,
             source_commit=args.source_commit,
+            sdk_runtime_root=args.sdk_runtime_root,
             expected_boto3_version=args.expected_boto3_version,
             expected_botocore_version=args.expected_botocore_version,
             output_directory=args.output_directory,

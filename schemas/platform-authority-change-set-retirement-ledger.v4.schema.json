@@ -1,0 +1,510 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.cloud/schemas/platform-authority-change-set-retirement-ledger.v4.schema.json",
+  "title": "GUG-215 workforce retirement ledger v4",
+  "description": "An IAM-authenticated single-owner retirement record. Digest integrity alone does not authenticate its installer or collector. Reuses the existing GUG-215 table and ChangeSet-derived key; incompatible occupied records must never be reset.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "environment",
+    "production",
+    "destination_account_id",
+    "region",
+    "stack_name",
+    "retirement_id",
+    "owner_operator_id",
+    "broker_code_sha256",
+    "authorization_mode",
+    "independent_approval_present",
+    "two_human_status",
+    "identity_separation",
+    "human_authentication_evidence",
+    "evidence_digest_semantics",
+    "owner_subject_digest_semantics",
+    "aws_effect_principal",
+    "native_on_behalf_of",
+    "state",
+    "version",
+    "attempt_count",
+    "effect_attribution",
+    "next_required_control",
+    "authority_account_id_digest",
+    "stack_id_digest",
+    "change_set_id_digest",
+    "change_set_name_digest",
+    "template_sha256",
+    "resource_inventory_sha256",
+    "identity_binding_digest",
+    "single_operator_authorization_sha256",
+    "owner_subject_digest",
+    "classifier_identity_store_user_id_digest",
+    "approver_identity_store_user_id_digest",
+    "broker_policy_sha256",
+    "broker_function_version_arn_digest",
+    "classifier_identity_proof_sha256",
+    "ledger_digest",
+    "approver_identity_proof_sha256",
+    "reconciliation_identity_proof_sha256",
+    "approval_digest",
+    "attempt_digest",
+    "verification_digest",
+    "authorized_at",
+    "not_before",
+    "expires_at",
+    "classified_at",
+    "updated_at",
+    "approved_at",
+    "attempted_at",
+    "verified_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "4"
+    },
+    "record_type": {
+      "const": "platform_authority_change_set_retirement_workforce_ledger"
+    },
+    "environment": {
+      "const": "production"
+    },
+    "production": {
+      "const": true
+    },
+    "destination_account_id": {
+      "const": "905418363887"
+    },
+    "region": {
+      "const": "us-east-1"
+    },
+    "stack_name": {
+      "const": "scanalyze-platform-authority-state-backend"
+    },
+    "retirement_id": {
+      "type": "string",
+      "pattern": "^gug215#sha256:[a-f0-9]{64}$"
+    },
+    "owner_operator_id": {
+      "const": "cesar-guzman"
+    },
+    "broker_code_sha256": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]{43}=$"
+    },
+    "authorization_mode": {
+      "const": "WORKFORCE_SINGLE_OWNER_RETIREMENT_V1"
+    },
+    "independent_approval_present": {
+      "const": false
+    },
+    "two_human_status": {
+      "const": "NOT_PROVEN"
+    },
+    "identity_separation": {
+      "const": "SINGLE_OWNER_DECLARED_NOT_INDEPENDENT"
+    },
+    "human_authentication_evidence": {
+      "const": "API_GATEWAY_IAM_EXCLUSIVE_USER_ASSIGNMENT"
+    },
+    "evidence_digest_semantics": {
+      "const": "VALIDATED_IAM_REQUEST_AND_PROTECTED_BINDING"
+    },
+    "owner_subject_digest_semantics": {
+      "const": "GUG215_IDENTITY_STORE_AND_OPAQUE_USER_V1"
+    },
+    "aws_effect_principal": {
+      "const": "BROKER_EXECUTION_ROLE"
+    },
+    "native_on_behalf_of": {
+      "const": false
+    },
+    "state": {
+      "enum": [
+        "CLASSIFIED",
+        "EXCEPTION_ACCEPTED",
+        "ATTEMPTED",
+        "RETIRED_RECONCILED"
+      ]
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4
+    },
+    "attempt_count": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ]
+    },
+    "effect_attribution": {
+      "enum": [
+        null,
+        "BROKER_SERVICE_PRINCIPAL_AFTER_WORKFORCE_IAM"
+      ]
+    },
+    "next_required_control": {
+      "enum": [
+        "WORKFORCE_OWNER_REVIEW_REQUIRED",
+        "ONE_SHOT_ATTEMPT_REQUIRED",
+        "READ_ONLY_RECONCILIATION_REQUIRED",
+        "WORKFORCE_RETIREMENT_ROLE_REVOCATION_REQUIRED",
+        "WORKFORCE_PAB_AND_REVOCATION_REQUIRED"
+      ]
+    },
+    "authority_account_id_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "stack_id_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "change_set_id_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "change_set_name_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "template_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "resource_inventory_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "identity_binding_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "single_operator_authorization_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "owner_subject_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "classifier_identity_store_user_id_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "approver_identity_store_user_id_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "broker_policy_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "broker_function_version_arn_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "classifier_identity_proof_sha256": {
+      "$ref": "#/$defs/digest"
+    },
+    "ledger_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "approver_identity_proof_sha256": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/digest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reconciliation_identity_proof_sha256": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/digest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "approval_digest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/digest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "attempt_digest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/digest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "verification_digest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/digest"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "authorized_at": {
+      "$ref": "#/$defs/time"
+    },
+    "not_before": {
+      "$ref": "#/$defs/time"
+    },
+    "expires_at": {
+      "$ref": "#/$defs/time"
+    },
+    "classified_at": {
+      "$ref": "#/$defs/time"
+    },
+    "updated_at": {
+      "$ref": "#/$defs/time"
+    },
+    "approved_at": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "attempted_at": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "verified_at": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "CLASSIFIED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "version": {
+            "const": 1
+          },
+          "attempt_count": {
+            "const": 0
+          },
+          "approver_identity_proof_sha256": {
+            "type": "null"
+          },
+          "reconciliation_identity_proof_sha256": {
+            "type": "null"
+          },
+          "approval_digest": {
+            "type": "null"
+          },
+          "attempt_digest": {
+            "type": "null"
+          },
+          "verification_digest": {
+            "type": "null"
+          },
+          "approved_at": {
+            "type": "null"
+          },
+          "attempted_at": {
+            "type": "null"
+          },
+          "verified_at": {
+            "type": "null"
+          },
+          "next_required_control": {
+            "const": "WORKFORCE_OWNER_REVIEW_REQUIRED"
+          },
+          "effect_attribution": {
+            "const": null
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "EXCEPTION_ACCEPTED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "version": {
+            "const": 2
+          },
+          "attempt_count": {
+            "const": 0
+          },
+          "approver_identity_proof_sha256": {
+            "$ref": "#/$defs/digest"
+          },
+          "reconciliation_identity_proof_sha256": {
+            "type": "null"
+          },
+          "approval_digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "attempt_digest": {
+            "type": "null"
+          },
+          "verification_digest": {
+            "type": "null"
+          },
+          "approved_at": {
+            "$ref": "#/$defs/time"
+          },
+          "attempted_at": {
+            "type": "null"
+          },
+          "verified_at": {
+            "type": "null"
+          },
+          "next_required_control": {
+            "const": "ONE_SHOT_ATTEMPT_REQUIRED"
+          },
+          "effect_attribution": {
+            "const": null
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "ATTEMPTED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "version": {
+            "const": 3
+          },
+          "attempt_count": {
+            "const": 1
+          },
+          "approver_identity_proof_sha256": {
+            "$ref": "#/$defs/digest"
+          },
+          "reconciliation_identity_proof_sha256": {
+            "type": "null"
+          },
+          "approval_digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "attempt_digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "verification_digest": {
+            "type": "null"
+          },
+          "approved_at": {
+            "$ref": "#/$defs/time"
+          },
+          "attempted_at": {
+            "$ref": "#/$defs/time"
+          },
+          "verified_at": {
+            "type": "null"
+          },
+          "next_required_control": {
+            "const": "READ_ONLY_RECONCILIATION_REQUIRED"
+          },
+          "effect_attribution": {
+            "const": null
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "RETIRED_RECONCILED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "version": {
+            "const": 4
+          },
+          "attempt_count": {
+            "const": 1
+          },
+          "approver_identity_proof_sha256": {
+            "$ref": "#/$defs/digest"
+          },
+          "reconciliation_identity_proof_sha256": {
+            "$ref": "#/$defs/digest"
+          },
+          "approval_digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "attempt_digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "verification_digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "approved_at": {
+            "$ref": "#/$defs/time"
+          },
+          "attempted_at": {
+            "$ref": "#/$defs/time"
+          },
+          "verified_at": {
+            "$ref": "#/$defs/time"
+          },
+          "next_required_control": {
+            "enum": [
+              "WORKFORCE_RETIREMENT_ROLE_REVOCATION_REQUIRED",
+              "WORKFORCE_PAB_AND_REVOCATION_REQUIRED"
+            ]
+          },
+          "effect_attribution": {
+            "const": "BROKER_SERVICE_PRINCIPAL_AFTER_WORKFORCE_IAM"
+          }
+        }
+      }
+    }
+  ]
+}
