@@ -3586,15 +3586,7 @@ def _validate_gug274_artifact_package_v2(instance: dict) -> list[str]:
     except (ValueError, TypeError):
         return ["vendored SDK entries must match the committed distribution pins"]
     entries = instance.get("entries", [])
-    expected_paths = sorted((
-        *GUG274_PACKAGE_PATHS,
-        "tooling/platform_authority_bootstrap_sdk_lock.py",
-        "tooling/platform_authority_bootstrap_jwt_grant.py",
-        "tooling/platform_authority_workforce_ingress.py",
-        "tooling/platform_authority_workforce_identity.py",
-        "tooling/platform_authority_workforce_assignment.py",
-        *(entry["path"] for entry in sdk),
-    ))
+    expected_paths = sorted((*GUG274_PACKAGE_PATHS, "tooling/platform_authority_bootstrap_sdk_lock.py", *(entry["path"] for entry in sdk)))
     if [entry.get("path") for entry in entries] != expected_paths:
         return ["package entries must match the complete source and vendored SDK closure"]
     indexed = {entry["path"]: entry for entry in entries}
