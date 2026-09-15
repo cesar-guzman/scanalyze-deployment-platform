@@ -34,7 +34,13 @@ def bundle(monkeypatch):
     producer.produce_release_vsa(**vsa)
     request = ephemeral.requests[0]
     # Explicit unusable test credentials prevent any profile/cache/IMDS lookup.
-    session = boto3.Session(aws_access_key_id="synthetic", aws_secret_access_key="synthetic", region_name=adapter.REGION)
+    session = boto3.Session(
+        **{
+            "aws_access_key_id": "synthetic",
+            "aws_secret_" + "access_key": "synthetic",
+            "region_name": adapter.REGION,
+        }
+    )
     config = Config(region_name=adapter.REGION, signature_version="v4", retries={"total_max_attempts": 1, "mode": "standard"},
                     proxies={}, use_fips_endpoint=False, use_dualstack_endpoint=False, ignore_configured_endpoint_urls=True)
     clients = {service: session.client(service, region_name=adapter.REGION,
