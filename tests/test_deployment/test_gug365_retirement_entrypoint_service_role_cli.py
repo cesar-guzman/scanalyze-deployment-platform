@@ -367,4 +367,4 @@ def test_cli_source_has_no_live_or_aws_client_construction_path() -> None:
         for action in parser._actions
         if getattr(action, "choices", None) is not None
     )
-    assert set(choices) == {"package", "plan"}
+    assert set(choices) == {"package", "plan", "workforce-package"}
