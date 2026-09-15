@@ -14,6 +14,8 @@ if str(ROOT) not in sys.path:
 
 from tooling.platform_authority_change_set_retirement_package import (  # noqa: E402
     RetirementPackageError,
+    AUTHORIZATION_MODE,
+    WORKFORCE_AUTHORIZATION_MODE,
     canonical_json,
     write_retirement_package,
 )
@@ -28,7 +30,10 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--broker-runtime-version-arn", required=True)
-    parser.add_argument("--broker-version-binding-sha256", required=True)
+    parser.add_argument("--broker-version-binding-sha256")
+    parser.add_argument("--authorization-mode", choices=(AUTHORIZATION_MODE, WORKFORCE_AUTHORIZATION_MODE),
+                        default=AUTHORIZATION_MODE,
+                        help="Explicit workforce opt-in produces unsigned source with configuration binding pending")
     parser.add_argument(
         "--output-directory",
         type=Path,
@@ -39,7 +44,13 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    args = _parser().parse_args()
+    parser = _parser()
+    args = parser.parse_args()
+    workforce = args.authorization_mode == WORKFORCE_AUTHORIZATION_MODE
+    if workforce and args.broker_version_binding_sha256 is not None:
+        parser.error("--broker-version-binding-sha256 is forbidden for workforce pre-sign source")
+    if not workforce and args.broker_version_binding_sha256 is None:
+        parser.error("--broker-version-binding-sha256 is required for the legacy package")
     try:
         archive, manifest, evidence = write_retirement_package(
             source_root=ROOT,
@@ -47,6 +58,7 @@ def main() -> int:
             broker_runtime_version_arn=args.broker_runtime_version_arn,
             broker_version_binding_sha256=args.broker_version_binding_sha256,
             output_directory=args.output_directory,
+            authorization_mode=args.authorization_mode,
         )
     except RetirementPackageError as exc:
         print(f"GUG215_PACKAGE_BLOCKED:{exc}", file=sys.stderr)
@@ -66,6 +78,9 @@ def main() -> int:
                 "aws_calls_performed": False,
                 "aws_mutations": "NONE",
                 "production_status": evidence["production_status"],
+                **({"artifact_stage": evidence["artifact_stage"],
+                     "configuration_binding_status": evidence["configuration_binding_status"],
+                     "signed_artifact_binding": None} if workforce else {}),
             }
         )
     )

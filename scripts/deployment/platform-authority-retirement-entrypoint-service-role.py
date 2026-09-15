@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the private offline GUG-365 package or service-role plan.
+"""Build private offline GUG-365 plans and GUG-215 workforce factory packages.
 
 This entrypoint is offline-only.  It publishes create-only owner evidence
 below one explicitly supplied private root and reports only sanitized
@@ -455,6 +455,70 @@ def _cmd_package(args: argparse.Namespace) -> int:
     return 0
 
 
+def _private_output_fingerprint(root: PrivateRoot, name: str) -> tuple[int, ...]:
+    """Identify a private output across the final pair of readbacks."""
+    _revalidate_root(root)
+    metadata = os.stat(name, dir_fd=root.descriptor, follow_symlinks=False)
+    if (not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_nlink != 1
+            or stat.S_IMODE(metadata.st_mode) != 0o600):
+        raise OfflineCustodyError("WORKFORCE_FACTORY_OUTPUT_CHANGED")
+    return (metadata.st_dev, metadata.st_ino, metadata.st_size,
+            metadata.st_mtime_ns, metadata.st_ctime_ns)
+
+
+def _cmd_workforce_package(args: argparse.Namespace) -> int:
+    """Capture clean committed source and verify both private output files."""
+    archive_name = factory_package.WORKFORCE_ARCHIVE_NAME
+    manifest_name = factory_package.WORKFORCE_MANIFEST_NAME
+    with _private_root(args.private_root) as root:
+        _target_absent(root, archive_name,
+                       exists_code="WORKFORCE_FACTORY_PACKAGE_ALREADY_EXISTS")
+        _target_absent(root, manifest_name,
+                       exists_code="WORKFORCE_FACTORY_MANIFEST_ALREADY_EXISTS")
+        committed = factory_package.verify_clean_source_commit(
+            source_root=REPO_ROOT, source_commit=args.source_commit, workforce=True
+        )
+        built = factory_package.build_workforce_ledger_factory_package(
+            source_root=REPO_ROOT,
+            source_commit=args.source_commit,
+            runtime_version_arn=args.runtime_version_arn,
+            committed_sources=committed,
+        )
+        factory_package.validate_workforce_ledger_factory_package_manifest(
+            built.manifest, archive=built.archive
+        )
+        manifest_bytes = _json_bytes(built.manifest)
+        _atomic_write_private(root, archive_name, built.archive,
+                              exists_code="WORKFORCE_FACTORY_PACKAGE_ALREADY_EXISTS")
+        if _read_private_bytes(root, Path(archive_name),
+                               maximum_bytes=len(built.archive)) != built.archive:
+            raise OfflineCustodyError("WORKFORCE_FACTORY_OUTPUT_READBACK_MISMATCH")
+        # A manifest is the completion marker. Never publish it before the
+        # archive has been read back; ambiguous partial output is not retried.
+        _atomic_write_private(root, manifest_name, manifest_bytes,
+                              exists_code="WORKFORCE_FACTORY_MANIFEST_ALREADY_EXISTS")
+        before = {name: _private_output_fingerprint(root, name)
+                  for name in (archive_name, manifest_name)}
+        if (_read_private_bytes(root, Path(manifest_name),
+                                maximum_bytes=len(manifest_bytes)) != manifest_bytes
+                or _read_private_bytes(root, Path(archive_name),
+                                       maximum_bytes=len(built.archive)) != built.archive):
+            raise OfflineCustodyError("WORKFORCE_FACTORY_OUTPUT_READBACK_MISMATCH")
+        if any(_private_output_fingerprint(root, name) != fingerprint
+               for name, fingerprint in before.items()):
+            raise OfflineCustodyError("WORKFORCE_FACTORY_OUTPUT_CHANGED")
+    print(_public_status(
+        status="WORKFORCE_PACKAGE_BUILT_AND_READ_BACK_OFFLINE",
+        archive_sha256="sha256:" + str(built.manifest["archive_sha256"]),
+        manifest_digest=built.manifest["manifest_digest"],
+        artifact_status=built.manifest["artifact_status"],
+        source_ci_status=built.manifest["source_ci_status"],
+    ))
+    return 0
+
+
 def _cmd_plan(args: argparse.Namespace) -> int:
     with _private_root(args.private_root) as root:
         _target_absent(
@@ -520,6 +584,20 @@ def _parser() -> argparse.ArgumentParser:
     package.add_argument("--source-commit", required=True)
     package.add_argument("--runtime-version-arn", required=True)
     package.set_defaults(handler=_cmd_package)
+
+    workforce_package = subparsers.add_parser(
+        "workforce-package",
+        help="Build and read back the unsigned GUG-215 workforce factory offline",
+        description="Build the GUG-215 workforce factory offline; no signing or deployment.",
+        allow_abbrev=False,
+    )
+    workforce_package.add_argument(
+        "--private-root", type=Path, required=True,
+        help="existing owner-only 0700 directory outside Git and cloud storage",
+    )
+    workforce_package.add_argument("--source-commit", required=True)
+    workforce_package.add_argument("--runtime-version-arn", required=True)
+    workforce_package.set_defaults(handler=_cmd_workforce_package)
 
     plan = subparsers.add_parser(
         "plan",

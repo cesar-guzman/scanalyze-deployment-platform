@@ -12,11 +12,16 @@ AWS responses, identifiers, Identity Store values, or control-plane payloads.
 from __future__ import annotations
 
 import hashlib
+import base64
+import copy
 import json
 import os
 import re
-from dataclasses import dataclass
+import time
+import zlib
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from types import MappingProxyType
 from typing import Any, Callable, Mapping, Protocol
 
 from tooling.platform_authority_single_operator_retirement_exception import (
@@ -189,6 +194,9 @@ WRITE_ACTIONS = frozenset(
         "dynamodb:UpdateItem",
     }
 )
+# IAM authorizes TransactWriteItems through its underlying item actions.
+# Preserve the historical v1 policy/digest; workforce uses valid IAM actions.
+WORKFORCE_WRITE_ACTIONS = WRITE_ACTIONS - {"dynamodb:TransactWriteItems"}
 
 
 class BrokerError(ValueError):
@@ -1071,6 +1079,7 @@ class RetirementBroker:
         expected_identity_role_names: list[str],
         expected_boundary_role_names: list[str],
         failure_code: str,
+        expected_role_ids: Mapping[str, str] | None = None,
     ) -> None:
         policy = self.clients.iam.get_policy(PolicyArn=policy_arn).get("Policy")
         if not isinstance(policy, Mapping):
@@ -1078,7 +1087,7 @@ class RetirementBroker:
         version_id = policy.get("DefaultVersionId")
         if (
             policy.get("Arn") != policy_arn
-            or not isinstance(version_id, str)
+            or version_id != "v1"
             or policy.get("AttachmentCount")
             != len(expected_identity_role_names)
             or policy.get("PermissionsBoundaryUsageCount")
@@ -1087,21 +1096,34 @@ class RetirementBroker:
         ):
             raise BrokerError(failure_code)
         versions = self.clients.iam.list_policy_versions(PolicyArn=policy_arn)
+        version_rows = versions.get("Versions") if isinstance(versions, Mapping) else None
         if (
             not isinstance(versions, Mapping)
             or versions.get("IsTruncated") is not False
             or "Marker" in versions
-            or versions.get("Versions")
-            != [{"VersionId": "v1", "IsDefaultVersion": True}]
+            or not isinstance(version_rows, list)
+            or len(version_rows) != 1
+            or not isinstance(version_rows[0], Mapping)
+            or set(version_rows[0]) - {"VersionId", "IsDefaultVersion", "CreateDate"}
+            or version_rows[0].get("VersionId") != "v1"
+            or version_rows[0].get("IsDefaultVersion") is not True
         ):
             raise BrokerError(failure_code)
+        # ListPolicyVersions includes optional provider timestamps; they do not
+        # change the required singleton v1 or its separately verified document.
+        if "CreateDate" in version_rows[0]:
+            created = version_rows[0]["CreateDate"]
+            if isinstance(created, str):
+                try:
+                    created = _parse_timestamp(created)
+                except BrokerError:
+                    raise BrokerError(failure_code) from None
+            if not isinstance(created, datetime) or created.tzinfo is None:
+                raise BrokerError(failure_code)
         for usage, expected_role_names in (
             ("PermissionsPolicy", expected_identity_role_names),
             ("PermissionsBoundary", expected_boundary_role_names),
         ):
-            expected_entities = [
-                {"RoleName": item} for item in sorted(expected_role_names)
-            ]
             entities = self.clients.iam.list_entities_for_policy(
                 PolicyArn=policy_arn,
                 EntityFilter="Role",
@@ -1115,13 +1137,22 @@ class RetirementBroker:
                 or entities.get("PolicyGroups") != []
                 or entities.get("PolicyUsers") != []
                 or not isinstance(roles, list)
-                or sorted(
-                    roles,
-                    key=lambda item: str(item.get("RoleName"))
-                    if isinstance(item, Mapping)
-                    else "",
+                or any(
+                    not isinstance(item, Mapping)
+                    or set(item) - {"RoleName", "RoleId"}
+                    or not isinstance(item.get("RoleName"), str)
+                    or (
+                        "RoleId" in item
+                        and (
+                            not isinstance(item["RoleId"], str)
+                            or re.fullmatch(r"[A-Za-z0-9_]{16,128}", item["RoleId"]) is None
+                            or (expected_role_ids is not None
+                                and item["RoleId"] != expected_role_ids.get(item["RoleName"]))
+                        )
+                    )
+                    for item in roles
                 )
-                != expected_entities
+                or sorted(item["RoleName"] for item in roles) != sorted(expected_role_names)
             ):
                 raise BrokerError(failure_code)
         version = self.clients.iam.get_policy_version(
@@ -1599,7 +1630,7 @@ class RetirementBroker:
             for item in tags
         }
         expected_tags = {
-            **EXPECTED_LEDGER_TAGS,
+            **self._ledger_control_tags(),
             "account_id": self.config.authority_account_id,
             "region": self.config.region,
         }
@@ -1617,7 +1648,7 @@ class RetirementBroker:
             not isinstance(statement, Mapping)
             or statement.get("Effect") != "Deny"
             or statement.get("Principal") != {"AWS": "*"}
-            or _actions(statement) != set(WRITE_ACTIONS)
+            or _actions(statement) != set(self._ledger_write_actions())
             or statement.get("Resource") != self.config.table_arn
             or statement.get("Condition")
             != {
@@ -1627,6 +1658,12 @@ class RetirementBroker:
             }
         ):
             raise BrokerError("LEDGER_RESOURCE_POLICY_CHANGED")
+
+    def _ledger_control_tags(self) -> dict[str, str]:
+        return dict(EXPECTED_LEDGER_TAGS)
+
+    def _ledger_write_actions(self) -> frozenset[str]:
+        return WRITE_ACTIONS
 
     def _stack(self) -> Mapping[str, Any]:
         response = self.clients.cloudformation.describe_stacks(
@@ -1763,6 +1800,10 @@ class RetirementBroker:
             "StateKey": CANONICAL_STATE_KEY,
         }:
             raise BrokerError("CHANGE_SET_METADATA_CHANGED")
+        if isinstance(self.config, WorkforceRetirementConfig):
+            _workforce_require(response.get("NextToken") is None
+                               and len(tags) == len(normalized_tags)
+                               and len(parameters) == len(normalized_parameters), "CHANGE_SET_METADATA_CHANGED")
         template = self.clients.cloudformation.get_template(
             ChangeSetName=change_set_id,
             StackName=stack_id,
@@ -2144,6 +2185,8 @@ class RetirementBroker:
                 ReturnConsumedCapacity="NONE",
             )
         except Exception as exc:
+            if isinstance(self.config, WorkforceRetirementConfig):
+                raise BrokerError("LEDGER_CREATE_UNCERTAIN") from None
             try:
                 observed = self._get_ledger(str(ledger["retirement_id"]))
             except Exception as read_exc:
@@ -2227,6 +2270,8 @@ class RetirementBroker:
                 ReturnValues="NONE",
             )
         except Exception as exc:
+            if isinstance(self.config, WorkforceRetirementConfig):
+                raise BrokerError("LEDGER_TRANSITION_UNCERTAIN") from None
             try:
                 observed = self._get_ledger(str(validated["retirement_id"]))
             except Exception as read_exc:
@@ -2305,7 +2350,7 @@ class RetirementBroker:
                 approval_input.update(
                     {
                         "authorization_mode": (
-                            AUTHORIZATION_MODE_SINGLE_OPERATOR
+                            self.config.authorization_mode
                         ),
                         "two_human_status": "NOT_PROVEN",
                         "independent_approval_present": False,
@@ -2354,21 +2399,18 @@ class RetirementBroker:
         ):
             raise BrokerError("CHANGE_SET_IDENTITY_CHANGED")
         if self.config.is_single_operator:
-            exception = self.config.single_operator_exception
-            if exception is None:
-                raise BrokerError("CONFIGURATION_INCOMPLETE")
-            try:
-                require_exception_effect_window(exception, now=self.now())
-            except SingleOperatorExceptionError as exc:
-                # ATTEMPTED is durable. An expired or ambiguous operation can
-                # only reconcile; it can never reopen or issue a second delete.
-                raise BrokerError(exc.code) from None
+            if isinstance(self.config, WorkforceRetirementConfig):
+                self.require_current()
+            else:
+                self._require_legacy_exception_effect_window()
         try:
             self.clients.cloudformation.delete_change_set(
                 ChangeSetName=exact_change_set_id,
                 StackName=exact_stack_id,
             )
-        except Exception:
+        except BaseException as exc:
+            if not isinstance(self.config, WorkforceRetirementConfig) and not isinstance(exc, Exception):
+                raise
             return {
                 "status": "RECONCILIATION_REQUIRED",
                 "ledger_digest": attempted["ledger_digest"],
@@ -2379,6 +2421,17 @@ class RetirementBroker:
             "ledger_digest": attempted["ledger_digest"],
             "next_required_control": "READ_ONLY_RECONCILIATION_REQUIRED",
         }
+
+    def _require_legacy_exception_effect_window(self) -> None:
+        exception = self.config.single_operator_exception
+        if exception is None:
+            raise BrokerError("CONFIGURATION_INCOMPLETE")
+        try:
+            require_exception_effect_window(exception, now=self.now())
+        except SingleOperatorExceptionError as exc:
+            # ATTEMPTED is durable. An expired or ambiguous operation can
+            # only reconcile; it can never reopen or issue a second delete.
+            raise BrokerError(exc.code) from None
 
     def _reconcile(self, identity_proof_sha256: str) -> dict[str, Any]:
         # The durable deployment-bound key is authoritative. Live names or
@@ -2431,7 +2484,13 @@ class RetirementBroker:
         final_stack_id = self._require_reconciliation_stack(current, final_stack)
         if self._change_set_inventory(final_stack_id) != []:
             raise BrokerError("RECONCILIATION_INVENTORY_AMBIGUOUS")
-        if self.config.is_single_operator:
+        if isinstance(self.config, WorkforceRetirementConfig):
+            next_control = (
+                "WORKFORCE_RETIREMENT_ROLE_REVOCATION_REQUIRED"
+                if pab is not None and all(pab.values())
+                else "WORKFORCE_PAB_AND_REVOCATION_REQUIRED"
+            )
+        elif self.config.is_single_operator:
             next_control = (
                 "SINGLE_OPERATOR_EXCEPTION_REVOCATION_REQUIRED"
                 if pab is not None and all(pab.values())
@@ -2450,6 +2509,9 @@ class RetirementBroker:
             reconciliation_identity_proof_sha256=identity_proof_sha256,
             verified_at=verified_at,
             effect_attribution=(
+                "BROKER_SERVICE_PRINCIPAL_AFTER_WORKFORCE_IAM"
+                if isinstance(self.config, WorkforceRetirementConfig)
+                else
                 "BROKER_SERVICE_PRINCIPAL_AFTER_SINGLE_OPERATOR_STS_PROOF"
                 if self.config.is_single_operator
                 else "BROKER_SERVICE_PRINCIPAL_AFTER_STS_PROOF"
@@ -2477,3 +2539,607 @@ def handler(event: object, context: object) -> dict[str, Any]:
     """Retained fail-closed shim; the template uses the GUG-217 URL handler."""
     del event, context
     return {"status": "DENY", "reason_code": "DIRECT_ENTRYPOINT_DISABLED"}
+
+
+WORKFORCE_RETIREMENT_MODE = "WORKFORCE_SINGLE_OWNER_RETIREMENT_V1"
+WORKFORCE_RETIREMENT_OPERATIONS = ("classify", "retire", "reconcile")
+WORKFORCE_RETIREMENT_ROLES = {"classify": "ScanalyzeAuthorityRetireClass", "retire": "ScanalyzeAuthorityRetireApprove"}
+WORKFORCE_READER_ARN = "arn:aws:iam::839393571433:role/ScanalyzeGug215WorkforceAssignmentReader"
+WORKFORCE_INSTANCE = "arn:aws:sso:::instance/ssoins-7223feaee61e2475"
+WORKFORCE_STORE = "d-906633fcab"
+WORKFORCE_CONFIG_FIELDS = frozenset({
+    "schema_version", "authorization_mode", "authority_account_id", "region", "stack_id", "change_set_id",
+    "expected_template_sha256", "expected_evidence_sha256", "expected_code_sha256", "expected_broker_policy_sha256",
+    "broker_role_id", "broker_trust_policy_sha256", "broker_runtime_version_arn", "code_signing_config_arn",
+    "signing_profile_version_arn", "function_version", "api_id", "owner_operator_id", "owner_subject_digest",
+    "authorized_at", "not_before", "expires_at", "roles", "management_reader_role_arn",
+})
+WORKFORCE_CONFIG_V2_FIELDS = WORKFORCE_CONFIG_FIELDS - {"function_version"}
+
+
+def _workforce_require(value: bool, code: str = "WORKFORCE_RETIREMENT_BINDING_INVALID") -> None:
+    if not value:
+        raise BrokerError(code)
+
+
+def _workforce_plain(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _workforce_plain(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_workforce_plain(item) for item in value]
+    return value
+
+
+def _workforce_freeze(value: Any) -> Any:
+    if isinstance(value, dict):
+        return MappingProxyType({key: _workforce_freeze(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_workforce_freeze(item) for item in value)
+    return value
+
+
+def _workforce_json_object(value: str) -> dict[str, Any]:
+    def pairs(items: list) -> dict:
+        result = {}
+        for key, item in items:
+            _workforce_require(key not in result, "WORKFORCE_JSON_INVALID")
+            result[key] = item
+        return result
+    def constant(_value: str) -> None:
+        raise BrokerError("WORKFORCE_JSON_INVALID")
+    try:
+        _workforce_require(type(value) is str and len(value.encode("utf-8")) <= 65536)
+        result = json.loads(value, object_pairs_hook=pairs, parse_constant=constant)
+        _workforce_require(type(result) is dict)
+        return result
+    except Exception:
+        raise BrokerError("WORKFORCE_JSON_INVALID") from None
+
+
+def _workforce_policy_digest(value: Any) -> str:
+    if type(value) is str:
+        return canonical_digest(_workforce_json_object(value))
+    _workforce_require(type(value) is dict, "WORKFORCE_POLICY_INVALID")
+    return canonical_digest(_workforce_json_object(json.dumps(value, allow_nan=False)))
+
+
+def workforce_owner_subject_digest(user_id: str) -> str:
+    """Hash the private opaque USER ID only; never return its raw value."""
+    _workforce_require(type(user_id) is str and 1 <= len(user_id) <= 128)
+    return canonical_digest({"domain": "scanalyze.gug215.workforce-owner.v1",
+                             "identity_store_id": WORKFORCE_STORE, "user_id": user_id})
+
+
+@dataclass(frozen=True, slots=True)
+class WorkforceRetirementConfig:
+    """Integrity-bound immutable input, not proof of its installer's authority."""
+    document: Mapping[str, Any]
+    expected_digest: str
+    _runtime_function_version: str | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        try:
+            data = _workforce_plain(self.document)
+            _workforce_require(type(data) is dict and data.get("schema_version") in ("1", "2"))
+            fields = WORKFORCE_CONFIG_FIELDS if data["schema_version"] == "1" else WORKFORCE_CONFIG_V2_FIELDS
+            _workforce_require(set(data) == fields)
+            _workforce_require(canonical_digest(data) == _require_digest(self.expected_digest, "WORKFORCE_CONFIG_PIN_INVALID"))
+            _workforce_require(data["authorization_mode"] == WORKFORCE_RETIREMENT_MODE)
+            _workforce_require(data["authority_account_id"] == "042360977644" and data["region"] == "us-east-1")
+            _workforce_require(data["owner_operator_id"] == "cesar-guzman" and data["management_reader_role_arn"] == WORKFORCE_READER_ARN)
+            for key in ("expected_template_sha256", "expected_evidence_sha256", "expected_broker_policy_sha256",
+                        "broker_trust_policy_sha256", "owner_subject_digest"):
+                _require_digest(data[key], "WORKFORCE_CONFIG_DIGEST_INVALID")
+            for key, pattern in {
+                "stack_id": r"arn:aws:cloudformation:us-east-1:042360977644:stack/scanalyze-platform-authority-state-backend/[0-9a-f-]{36}",
+                "change_set_id": r"arn:aws:cloudformation:us-east-1:042360977644:changeSet/scanalyze-platform-authority-bootstrap-[0-9]{14}/[0-9a-f-]{36}",
+                "broker_role_id": r"AROA[A-Z0-9]{17}", "expected_code_sha256": r"[A-Za-z0-9+/]{43}=",
+                "broker_runtime_version_arn": r"arn:aws:lambda:us-east-1::runtime:[0-9a-f]{64}",
+                "code_signing_config_arn": r"arn:aws:lambda:us-east-1:042360977644:code-signing-config:csc-[a-z0-9]{17}",
+                "signing_profile_version_arn": r"arn:aws:signer:us-east-1:042360977644:/signing-profiles/[A-Za-z0-9_]{2,64}/[A-Za-z0-9]{10}",
+                "api_id": r"[a-z0-9]{10}",
+            }.items():
+                _workforce_require(type(data[key]) is str and re.fullmatch(pattern, data[key]) is not None)
+            if data["schema_version"] == "1":
+                _workforce_require(type(data["function_version"]) is str
+                                   and re.fullmatch(r"[1-9][0-9]{0,7}", data["function_version"]) is not None)
+            for key in ("stack_id", "change_set_id"):
+                _workforce_require(UUID.fullmatch(data[key].rsplit("/", 1)[1]) is not None)
+            created, start, end = (self.parse_time(data[key]) for key in ("authorized_at", "not_before", "expires_at"))
+            _workforce_require(created <= start < end and (start - created).total_seconds() <= 3600
+                               and (end - start).total_seconds() <= 900)
+            _workforce_require(type(data["roles"]) is dict and set(data["roles"]) == set(WORKFORCE_RETIREMENT_ROLES))
+            for operation, name in WORKFORCE_RETIREMENT_ROLES.items():
+                role = data["roles"][operation]
+                _workforce_require(type(role) is dict and set(role) == {"role_arn", "role_id", "permission_set_arn", "policy_sha256", "trust_sha256"})
+                _workforce_require(re.fullmatch(r"arn:aws:iam::042360977644:role/aws-reserved/sso\.amazonaws\.com/(?:us-east-1/)?AWSReservedSSO_"
+                                               + name + r"_[0-9a-f]{16}", role["role_arn"]) is not None)
+                _workforce_require(re.fullmatch(r"AROA[A-Z0-9]{17}", role["role_id"]) is not None)
+                _workforce_require(re.fullmatch(r"arn:aws:sso:::permissionSet/ssoins-7223feaee61e2475/ps-[a-z0-9]{16}", role["permission_set_arn"]) is not None)
+                for key in ("policy_sha256", "trust_sha256"):
+                    _require_digest(role[key], "WORKFORCE_ROLE_DIGEST_INVALID")
+            _workforce_require(data["roles"]["classify"]["permission_set_arn"] != data["roles"]["retire"]["permission_set_arn"])
+            _workforce_require(data["roles"]["classify"]["role_id"] != data["roles"]["retire"]["role_id"])
+            object.__setattr__(self, "document", _workforce_freeze(data))
+        except Exception:
+            raise BrokerError("WORKFORCE_RETIREMENT_BINDING_INVALID") from None
+
+    @staticmethod
+    def parse_time(value: str) -> datetime:
+        _workforce_require(type(value) is str and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value) is not None)
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+    def require_time(self, now: datetime, *, reconcile: bool = False) -> None:
+        _workforce_require(type(now) is datetime and now.tzinfo is not None and now.utcoffset() is not None
+                           and now.utcoffset().total_seconds() == 0, "WORKFORCE_CLOCK_INVALID")
+        _workforce_require(self.parse_time(self.document["not_before"]) <= now, "WORKFORCE_WINDOW_INACTIVE")
+        if not reconcile:
+            _workforce_require(now < self.parse_time(self.document["expires_at"]), "WORKFORCE_WINDOW_EXPIRED")
+
+    def __getattr__(self, name: str) -> Any:
+        if name in self.document:
+            return self.document[name]
+        raise AttributeError(name)
+
+    partition = "aws"
+    authority_account_id = "042360977644"
+    region = "us-east-1"
+    stack_name = CANONICAL_STACK_NAME
+    function_name = BROKER_FUNCTION_NAME
+    ledger_table_name = RETIREMENT_LEDGER_TABLE
+    broker_execution_role_name = "ScanalyzeGug215BrokerExecution"
+    is_single_operator = True
+    authorization_mode = WORKFORCE_RETIREMENT_MODE
+    single_operator_exception = None
+    allowed_aliases = frozenset(WORKFORCE_RETIREMENT_OPERATIONS)
+    table_arn = "arn:aws:dynamodb:us-east-1:042360977644:table/" + RETIREMENT_LEDGER_TABLE
+    function_arn = "arn:aws:lambda:us-east-1:042360977644:function:" + BROKER_FUNCTION_NAME
+    execution_role_arn = "arn:aws:iam::042360977644:role/ScanalyzeGug215BrokerExecution"
+    broker_permissions_boundary_arn = "arn:aws:iam::042360977644:policy/scanalyze/platform-authority/" + BROKER_BOUNDARY_POLICY_NAME
+
+    @property
+    def change_set_name(self) -> str:
+        return self.document["change_set_id"].split("/")[1]
+
+    @property
+    def retirement_id(self) -> str:
+        return "gug215#sha256:" + hashlib.sha256(self.document["change_set_id"].encode("utf-8")).hexdigest()
+
+    @property
+    def stack_arn(self) -> str:
+        return self.document["stack_id"]
+
+    @property
+    def identity_binding_digest(self) -> str:
+        return self.expected_digest
+
+    @property
+    def function_version(self) -> str:
+        if self.document["schema_version"] == "1":
+            return self.document["function_version"]
+        _workforce_require(self._runtime_function_version is not None, "WORKFORCE_VERSION_UNBOUND")
+        return self._runtime_function_version
+
+    def bind_lambda_context(self, context: object) -> "WorkforceRetirementConfig":
+        """Bind provider context in memory; neither context nor a hash grants authority.
+
+        Schema 2 can be installed before PublishVersion. Its environment never
+        contains the version; deployed-stage, signed-code and policy readbacks
+        must independently confirm this exact numeric invocation before a CAS.
+        """
+        if self.document["schema_version"] == "1":
+            _workforce_require(getattr(context, "invoked_function_arn", None) == self.version_arn,
+                               "WORKFORCE_VERSION_INVALID")
+            return self
+        version = getattr(context, "function_version", None)
+        _workforce_require(type(version) is str and re.fullmatch(r"[1-9][0-9]{0,7}", version) is not None,
+                           "WORKFORCE_VERSION_INVALID")
+        _workforce_require(getattr(context, "invoked_function_arn", None) == self.function_arn + ":" + version,
+                           "WORKFORCE_VERSION_INVALID")
+        # A previously bound object cannot silently switch versions.
+        _workforce_require(self._runtime_function_version in (None, version), "WORKFORCE_VERSION_INVALID")
+        bound = WorkforceRetirementConfig(self.document, self.expected_digest)
+        object.__setattr__(bound, "_runtime_function_version", version)
+        return bound
+
+    @property
+    def version_arn(self) -> str:
+        return self.function_arn + ":" + self.function_version
+
+    def runtime_environment(self) -> dict[str, str]:
+        raw = json.dumps(_workforce_plain(self.document), sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+        return {"GUG215_IDENTITY_MODE": WORKFORCE_RETIREMENT_MODE,
+                "GUG215_WORKFORCE_CONFIG_B64Z": base64.b64encode(zlib.compress(raw, 9)).decode("ascii"),
+                "GUG215_WORKFORCE_CONFIG_DIGEST": self.expected_digest}
+
+
+def workforce_retirement_resource_policy(config: WorkforceRetirementConfig) -> dict[str, Any]:
+    """Exact numeric-version boundary required before trusting HTTP IAM context."""
+    prefix = f"arn:aws:execute-api:us-east-1:042360977644:{config.api_id}/retirement/POST/"
+    routes = [prefix + operation for operation in WORKFORCE_RETIREMENT_OPERATIONS]
+    def deny(sid: str, condition: dict) -> dict:
+        return {"Sid": sid, "Effect": "Deny", "Principal": "*", "Action": "lambda:InvokeFunction",
+                "Resource": config.version_arn, "Condition": condition}
+    return {"Version": "2012-10-17", "Statement": [
+        {"Sid": "AllowExactRetirementApi", "Effect": "Allow", "Principal": {"Service": "apigateway.amazonaws.com"},
+         "Action": "lambda:InvokeFunction", "Resource": config.version_arn,
+         "Condition": {"StringEquals": {"aws:SourceAccount": "042360977644"}, "ArnEquals": {"aws:SourceArn": routes}}},
+        deny("DenyDirectInvocation", {"StringNotEquals": {"aws:PrincipalServiceName": "apigateway.amazonaws.com"}}),
+        deny("DenyForeignAccount", {"StringNotEquals": {"aws:SourceAccount": "042360977644"}}),
+        deny("DenyForeignRoute", {"ArnNotEquals": {"aws:SourceArn": routes}}),
+        deny("DenyBeforeWindow", {"DateLessThan": {"aws:CurrentTime": config.not_before}}),
+        deny("DenyExpiredMutation", {"DateGreaterThanEquals": {"aws:CurrentTime": config.expires_at},
+                                      "ArnEquals": {"aws:SourceArn": routes[:2]}}),
+        {"Sid": "DenyAsync", "Effect": "Deny", "Principal": "*", "Action": "lambda:InvokeAsync", "Resource": config.version_arn},
+    ]}
+
+
+@dataclass(frozen=True, slots=True)
+class WorkforceRetirementRequest:
+    operation: str
+    caller_arn: str
+    caller_role_id: str
+    requested_at: datetime
+    validated_at: datetime
+    request_id_digest: str
+    binding_digest: str
+
+
+class WorkforceRetirementBroker(RetirementBroker):
+    """The same GUG-215 target/store/CAS, with a separate honest IAM binding."""
+
+    def __init__(self, *, config: WorkforceRetirementConfig, clients: Any,
+                 request: WorkforceRetirementRequest, now: Callable[[], datetime],
+                 deadline: float | None = None) -> None:
+        _workforce_require(type(config) is WorkforceRetirementConfig and type(request) is WorkforceRetirementRequest)
+        super().__init__(config=config, clients=clients, now=now)
+        self.request = request
+        self._last_time = request.validated_at
+        self._deadline = time.monotonic() + 25 if deadline is None else deadline
+
+    def _time(self, *, reconcile: bool = False) -> datetime:
+        value = self.now()
+        self.config.require_time(value, reconcile=reconcile)
+        _workforce_require(self.request.requested_at <= self._last_time <= value
+                           and (value - self.request.requested_at).total_seconds() < 300
+                           and time.monotonic() < self._deadline, "WORKFORCE_REQUEST_EXPIRED")
+        self._last_time = value
+        return value
+
+    def _pages(self, client: Any, method: str, field: str, **kwargs: Any) -> list:
+        rows, seen, token = [], set(), None
+        for _ in range(4):
+            self._time(reconcile=self.request.operation == "reconcile")
+            response = getattr(client, method)(**kwargs, **({"NextToken": token} if token else {}))
+            _workforce_require(type(response) is dict and type(response.get(field)) is list, "WORKFORCE_METADATA_INVALID")
+            rows.extend(response[field])
+            _workforce_require(len(rows) <= 256, "WORKFORCE_METADATA_LIMIT")
+            token = response.get("NextToken")
+            if token is None:
+                return rows
+            _workforce_require(type(token) is str and 0 < len(token) <= 2048 and token not in seen, "WORKFORCE_PAGINATION_INVALID")
+            seen.add(token)
+        raise BrokerError("WORKFORCE_METADATA_LIMIT")
+
+    def _iam_role(self, role: Mapping, *, permission_set: bool = True) -> None:
+        name = role["role_arn"].rsplit("/", 1)[1]
+        actual = self.clients.iam.get_role(RoleName=name).get("Role")
+        _workforce_require(type(actual) is dict and actual.get("Arn") == role["role_arn"]
+                           and actual.get("RoleId") == role["role_id"]
+                           and _workforce_policy_digest(actual.get("AssumeRolePolicyDocument")) == role["trust_sha256"], "WORKFORCE_ROLE_CHANGED")
+        if not permission_set:
+            _workforce_require(actual.get("PermissionsBoundary") == {"PermissionsBoundaryType": "Policy", "PermissionsBoundaryArn": self.config.broker_permissions_boundary_arn})
+            inline, attached = self._role_policy_inventory(role_name=name, failure_code="WORKFORCE_ROLE_CHANGED")
+            _workforce_require(inline == [] and attached == [{"PolicyName": BROKER_BOUNDARY_POLICY_NAME,
+                                                             "PolicyArn": self.config.broker_permissions_boundary_arn}])
+            self._verify_managed_policy_document(policy_arn=self.config.broker_permissions_boundary_arn,
+                expected_policy_sha256=self.config.expected_broker_policy_sha256,
+                expected_identity_role_names=[name], expected_boundary_role_names=[name], failure_code="WORKFORCE_ROLE_CHANGED",
+                expected_role_ids={name: role["role_id"]})
+            return
+        _workforce_require(actual.get("PermissionsBoundary") is None, "WORKFORCE_ROLE_CHANGED")
+        inline, attached = self._role_policy_inventory(role_name=name, failure_code="WORKFORCE_ROLE_CHANGED")
+        _workforce_require(len(inline) == 1 and attached == [], "WORKFORCE_ROLE_CHANGED")
+        policy = self.clients.iam.get_role_policy(RoleName=name, PolicyName=inline[0])
+        _workforce_require(policy.get("RoleName") == name and policy.get("PolicyName") == inline[0]
+                           and _workforce_policy_digest(policy.get("PolicyDocument")) == role["policy_sha256"], "WORKFORCE_ROLE_CHANGED")
+
+    def _assignments(self) -> None:
+        # This private SDK context assumes only the fixed management reader.
+        # It does not return a Boolean authority decision or expose credentials.
+        with self.clients.assignment_reader() as sso:
+            for operation, expected_name in WORKFORCE_RETIREMENT_ROLES.items():
+                role = self.config.roles[operation]
+                kwargs = {"InstanceArn": WORKFORCE_INSTANCE, "PermissionSetArn": role["permission_set_arn"]}
+                record = sso.describe_permission_set(**kwargs).get("PermissionSet")
+                _workforce_require(type(record) is dict and record.get("PermissionSetArn") == role["permission_set_arn"]
+                                   and record.get("Name") == expected_name and record.get("SessionDuration") == "PT1H", "WORKFORCE_PERMISSION_SET_CHANGED")
+                assignments = self._pages(sso, "list_account_assignments", "AccountAssignments", **kwargs, AccountId="042360977644")
+                _workforce_require(len(assignments) == 1 and type(assignments[0]) is dict, "WORKFORCE_ASSIGNMENT_CHANGED")
+                assignment = assignments[0]
+                _workforce_require(assignment.get("AccountId") == "042360977644"
+                                   and assignment.get("PermissionSetArn") == role["permission_set_arn"]
+                                   and assignment.get("PrincipalType") == "USER"
+                                   and workforce_owner_subject_digest(assignment.get("PrincipalId")) == self.config.owner_subject_digest,
+                                   "WORKFORCE_ASSIGNMENT_CHANGED")
+                _workforce_require(self._pages(sso, "list_accounts_for_provisioned_permission_set", "AccountIds", **kwargs) == ["042360977644"], "WORKFORCE_ACCOUNT_SCOPE_CHANGED")
+                policy = sso.get_inline_policy_for_permission_set(**kwargs).get("InlinePolicy")
+                _workforce_require(_workforce_policy_digest(policy) == role["policy_sha256"], "WORKFORCE_PERMISSION_SET_CHANGED")
+                _workforce_require(self._pages(sso, "list_managed_policies_in_permission_set", "AttachedManagedPolicies", **kwargs) == [])
+                _workforce_require(self._pages(sso, "list_customer_managed_policy_references_in_permission_set", "CustomerManagedPolicyReferences", **kwargs) == [])
+                try:
+                    boundary = sso.get_permissions_boundary_for_permission_set(**kwargs)
+                except Exception as exc:
+                    # The real API uses this exact 404 for an absent boundary.
+                    # A missing permission set, denied read or generic 404 is
+                    # NOT absence. Reconfirm the pinned permission set after
+                    # this response; never retry the boundary call implicitly.
+                    response = getattr(exc, "response", None)
+                    _workforce_require(type(response) is dict
+                        and type(response.get("Error")) is dict
+                        and response["Error"].get("Code") == "ResourceNotFoundException"
+                        and response["Error"].get("Message") == "PermissionsBoundary not present in permission set " + role["permission_set_arn"]
+                        and type(response.get("ResponseMetadata")) is dict
+                        and type(response["ResponseMetadata"].get("HTTPStatusCode")) is int
+                        and response["ResponseMetadata"]["HTTPStatusCode"] == 404,
+                        "WORKFORCE_PERMISSION_SET_CHANGED")
+                    self._time(reconcile=self.request.operation == "reconcile")
+                    existing = sso.describe_permission_set(**kwargs).get("PermissionSet")
+                    self._time(reconcile=self.request.operation == "reconcile")
+                    _workforce_require(type(existing) is dict
+                        and existing.get("PermissionSetArn") == role["permission_set_arn"]
+                        and existing.get("Name") == expected_name and existing.get("SessionDuration") == "PT1H",
+                        "WORKFORCE_PERMISSION_SET_CHANGED")
+                    boundary = {}
+                _workforce_require(type(boundary) is dict and boundary.get("PermissionsBoundary") is None, "WORKFORCE_PERMISSION_SET_CHANGED")
+                self._iam_role(role)
+
+    def require_current(self, *, reconcile: bool = False) -> None:
+        self._time(reconcile=reconcile)
+        _workforce_require(self.request.binding_digest == self.config.expected_digest)
+        operation = "classify" if self.request.operation == "classify" else "retire"
+        role = self.config.roles[operation]
+        prefix = "arn:aws:sts::042360977644:assumed-role/" + role["role_arn"].rsplit("/", 1)[1] + "/"
+        _workforce_require(self.request.caller_arn.startswith(prefix) and self.request.caller_role_id == role["role_id"], "WORKFORCE_CALLER_CHANGED")
+        identity = self.clients.sts.get_caller_identity()
+        _workforce_require(identity.get("Account") == "042360977644"
+                           and type(identity.get("Arn")) is str
+                           and re.fullmatch(r"arn:aws:sts::042360977644:assumed-role/ScanalyzeGug215BrokerExecution/[A-Za-z0-9+=,.@_-]{2,64}", identity["Arn"])
+                           and identity.get("UserId") == self.config.broker_role_id + ":" + identity["Arn"].rsplit("/", 1)[1], "WORKFORCE_EXECUTOR_CHANGED")
+        self._assignments()
+        if self.config.schema_version == "2":
+            self._verify_deployed_stage(reconcile=reconcile)
+        self._time(reconcile=reconcile)
+
+    def _verify_deployed_stage(self, *, reconcile: bool) -> None:
+        # Local import keeps the seven-source legacy package importable. Only
+        # schema 2 requires the separately reviewed eighth source in its ZIP.
+        from tooling.platform_authority_workforce_stage_binding import (
+            MAX_EXPORT_BYTES,
+            verify_workforce_deployed_stage,
+        )
+
+        stream = None
+        try:
+            client, cfg = self.clients.apigatewayv2, self.config
+
+            def read(method: str, **kwargs: Any) -> Any:
+                self._time(reconcile=reconcile)
+                response = getattr(client, method)(**kwargs)
+                self._time(reconcile=reconcile)
+                return response
+
+            # Editable configuration alone is insufficient: the stage export
+            # identifies the deployed snapshot, bracketed by the same stage's
+            # DeploymentId. No response/body digest supplies authorization.
+            api = copy.deepcopy(read("get_api", ApiId=cfg.api_id))
+            routes = copy.deepcopy(read("get_routes", ApiId=cfg.api_id))
+            integrations = copy.deepcopy(read("get_integrations", ApiId=cfg.api_id))
+            stages_before = copy.deepcopy(read("get_stages", ApiId=cfg.api_id))
+            export_request = {"ApiId": cfg.api_id, "Specification": "OAS30", "OutputType": "JSON",
+                              "IncludeExtensions": True, "StageName": "retirement"}
+            response = read("export_api", **export_request)
+            stream = response["body"]
+            self._time(reconcile=reconcile)
+            export_body = stream.read(MAX_EXPORT_BYTES + 1)
+            self._time(reconcile=reconcile)
+            _workforce_require(type(export_body) is bytes and 0 < len(export_body) <= MAX_EXPORT_BYTES,
+                               "WORKFORCE_STAGE_READ_FAILED")
+            _workforce_require(stream.read(1) == b"", "WORKFORCE_STAGE_READ_FAILED")
+            self._time(reconcile=reconcile)
+            stream.close()
+            stream = None
+            self._time(reconcile=reconcile)
+            stages_after = copy.deepcopy(read("get_stages", ApiId=cfg.api_id))
+            verify_workforce_deployed_stage(expected_api_id=cfg.api_id, expected_version_arn=cfg.version_arn,
+                api=api, routes=routes, integrations=integrations, stages_before=stages_before,
+                stages_after=stages_after, export_request=export_request, export_body=export_body)
+            self._time(reconcile=reconcile)
+        except BrokerError:
+            raise
+        except Exception:
+            raise BrokerError("WORKFORCE_STAGE_READ_FAILED") from None
+        finally:
+            if stream is not None:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+    def _verify_runtime_boundary(self, alias: str) -> None:
+        cfg = self.config
+        self._iam_role({"role_arn": cfg.execution_role_arn, "role_id": cfg.broker_role_id,
+                        "trust_sha256": cfg.broker_trust_policy_sha256}, permission_set=False)
+        function = self.clients.lambda_client.get_function_configuration(FunctionName=cfg.version_arn)
+        expected = {"FunctionArn": cfg.version_arn, "Version": cfg.function_version, "CodeSha256": cfg.expected_code_sha256,
+            "Role": cfg.execution_role_arn, "RuntimeVersionConfig": {"RuntimeVersionArn": cfg.broker_runtime_version_arn},
+            "LoggingConfig": {"LogFormat": "JSON", "ApplicationLogLevel": "ERROR", "SystemLogLevel": "WARN", "LogGroup": BROKER_LOG_GROUP_NAME},
+            "Architectures": ["x86_64"], "EphemeralStorage": {"Size": 512},
+            "Handler": "tooling.platform_authority_identity_context_pep_runtime.handler", "MemorySize": 256,
+            "PackageType": "Zip", "Runtime": "python3.12", "Timeout": 60, "TracingConfig": {"Mode": "PassThrough"},
+            "Environment": {"Variables": cfg.runtime_environment()}}
+        _workforce_require(all(function.get(key) == value for key, value in expected.items()), "WORKFORCE_RUNTIME_CHANGED")
+        vpc = function.get("VpcConfig")
+        _workforce_require(isinstance(vpc, dict)
+                           and {key: value for key, value in vpc.items() if key != "Ipv6AllowedForDualStack"}
+                           == {"SubnetIds": [], "SecurityGroupIds": [], "VpcId": ""}
+                           and ("Ipv6AllowedForDualStack" not in vpc or vpc["Ipv6AllowedForDualStack"] is False),
+                           "WORKFORCE_RUNTIME_CHANGED")
+        for key in ("Layers", "FileSystemConfigs", "DeadLetterConfig", "KMSKeyArn"):
+            _workforce_require(function.get(key) in (None, [], {}, ""), "WORKFORCE_RUNTIME_CHANGED")
+        _workforce_require(function.get("SnapStart") in (None, {}, {"ApplyOn": "None", "OptimizationStatus": "Off"}))
+        management = self.clients.lambda_client.get_runtime_management_config(FunctionName=cfg.function_name, Qualifier=cfg.function_version)
+        _workforce_require(management.get("FunctionArn") == cfg.version_arn and management.get("UpdateRuntimeOn") == "Manual"
+                           and management.get("RuntimeVersionArn") == cfg.broker_runtime_version_arn, "WORKFORCE_RUNTIME_CHANGED")
+        _workforce_require(self.clients.lambda_client.get_function_concurrency(FunctionName=cfg.function_name).get("ReservedConcurrentExecutions") == 1)
+        signing = self.clients.lambda_client.get_function_code_signing_config(FunctionName=cfg.function_name)
+        _workforce_require(signing.get("CodeSigningConfigArn") == cfg.code_signing_config_arn, "WORKFORCE_SIGNING_CHANGED")
+        csc = self.clients.lambda_client.get_code_signing_config(CodeSigningConfigArn=cfg.code_signing_config_arn).get("CodeSigningConfig", {})
+        _workforce_require(csc.get("CodeSigningConfigArn") == cfg.code_signing_config_arn
+                           and csc.get("AllowedPublishers") == {"SigningProfileVersionArns": [cfg.signing_profile_version_arn]}
+                           and csc.get("CodeSigningPolicies") == {"UntrustedArtifactOnDeployment": "Enforce"}, "WORKFORCE_SIGNING_CHANGED")
+        policy = self.clients.lambda_client.get_policy(FunctionName=cfg.version_arn)
+        _workforce_require(_workforce_json_object(policy.get("Policy")) == workforce_retirement_resource_policy(cfg), "WORKFORCE_RESOURCE_POLICY_CHANGED")
+
+    def preflight(self, *, alias: str) -> None:
+        _workforce_require(alias == self.request.operation and alias in WORKFORCE_RETIREMENT_OPERATIONS)
+        self.require_current(reconcile=alias == "reconcile")
+        self._verify_runtime_boundary(alias)
+        self._verify_table_controls()
+        self._time(reconcile=alias == "reconcile")
+
+    def _ledger_control_tags(self) -> dict[str, str]:
+        # Initial installation creates this exact production contract. This
+        # validator never retags, adopts or treats a mismatch as absence.
+        return {**EXPECTED_LEDGER_TAGS, "environment": "production", "production": "true"}
+
+    def _ledger_write_actions(self) -> frozenset[str]:
+        return WORKFORCE_WRITE_ACTIONS
+
+    def _target_evidence(self) -> dict[str, Any]:
+        evidence = super()._target_evidence()
+        _workforce_require(evidence["_change_set_id"] == self.config.change_set_id
+                           and evidence["_stack_id"] == self.config.stack_id
+                           and evidence["retirement_id"] == self.config.retirement_id, "WORKFORCE_TARGET_CHANGED")
+        return evidence
+
+    def _stack(self) -> Mapping[str, Any]:
+        # Preserve the legacy predicates and close pagination/identity ambiguity
+        # for this new mode without broadening the legacy execution path.
+        stack = super()._stack()
+        _workforce_require(stack.get("StackId") == self.config.stack_id, "WORKFORCE_TARGET_CHANGED")
+        resources = self.clients.cloudformation.list_stack_resources(StackName=self.config.stack_id)
+        _workforce_require(resources.get("StackResourceSummaries") == []
+                           and resources.get("NextToken") is None, "STACK_RESOURCE_INVENTORY_CHANGED")
+        self._time(reconcile=self.request.operation == "reconcile")
+        return stack
+
+    def _change_set_inventory(self, stack_id: str) -> list[Mapping[str, Any]]:
+        _workforce_require(stack_id == self.config.stack_id, "WORKFORCE_TARGET_CHANGED")
+        return self._pages(self.clients.cloudformation, "list_change_sets", "Summaries", StackName=stack_id)
+
+    def _get_ledger(self, retirement_id: str) -> dict[str, Any] | None:
+        _workforce_require(retirement_id == self.config.retirement_id)
+        response = self.clients.dynamodb.get_item(TableName=self.config.ledger_table_name,
+            Key={"retirement_id": {"S": retirement_id}}, ConsistentRead=True, ProjectionExpression="document")
+        if "Item" not in response:
+            return None
+        item = response["Item"]
+        _workforce_require(type(item) is dict and type(item.get("document")) is dict
+                           and type(item["document"].get("S")) is str, "LEDGER_MALFORMED")
+        # Foreign versions/modes are occupied keys, never absence or a reset.
+        return self._validate_ledger(_workforce_json_object(item["document"]["S"]))
+
+    def _create_ledger(self, ledger: Mapping[str, Any]) -> None:
+        self.require_current()
+        super()._create_ledger(ledger)
+
+    def _transition(self, before: Mapping[str, Any], *, state: str, **updates: Any) -> dict[str, Any]:
+        self.require_current(reconcile=state == "RETIRED_RECONCILED")
+        return super()._transition(before, state=state, **updates)
+
+    def _ledger_binding(self) -> dict[str, Any]:
+        cfg = self.config
+        return {
+            "schema_version": "4", "record_type": "platform_authority_change_set_retirement_workforce_ledger",
+            "environment": "production", "production": True, "destination_account_id": "905418363887",
+            "authority_account_id_digest": secret_digest("authority_account_id", cfg.authority_account_id),
+            "region": cfg.region, "stack_name": cfg.stack_name, "retirement_id": cfg.retirement_id,
+            "stack_id_digest": secret_digest("stack_id", cfg.stack_id),
+            "change_set_id_digest": secret_digest("change_set_id", cfg.change_set_id),
+            "change_set_name_digest": secret_digest("change_set_name", cfg.change_set_name),
+            "template_sha256": cfg.expected_template_sha256, "resource_inventory_sha256": cfg.expected_evidence_sha256,
+            "identity_binding_digest": cfg.expected_digest, "single_operator_authorization_sha256": cfg.expected_digest,
+            "owner_operator_id": cfg.owner_operator_id, "owner_subject_digest": cfg.owner_subject_digest,
+            "classifier_identity_store_user_id_digest": cfg.owner_subject_digest,
+            "approver_identity_store_user_id_digest": cfg.owner_subject_digest,
+            "broker_code_sha256": cfg.expected_code_sha256, "broker_policy_sha256": cfg.expected_broker_policy_sha256,
+            "broker_function_version_arn_digest": canonical_digest({"function_version_arn": cfg.version_arn}),
+            "authorization_mode": WORKFORCE_RETIREMENT_MODE, "independent_approval_present": False,
+            "two_human_status": "NOT_PROVEN", "identity_separation": "SINGLE_OWNER_DECLARED_NOT_INDEPENDENT",
+            "human_authentication_evidence": "API_GATEWAY_IAM_EXCLUSIVE_USER_ASSIGNMENT",
+            "evidence_digest_semantics": "VALIDATED_IAM_REQUEST_AND_PROTECTED_BINDING",
+            "owner_subject_digest_semantics": "GUG215_IDENTITY_STORE_AND_OPAQUE_USER_V1",
+            "aws_effect_principal": "BROKER_EXECUTION_ROLE", "native_on_behalf_of": False,
+            "authorized_at": cfg.authorized_at, "not_before": cfg.not_before, "expires_at": cfg.expires_at,
+        }
+
+    def _base_ledger(self, evidence: Mapping[str, Any], identity_proof_sha256: str) -> dict[str, Any]:
+        self._require_evidence_matches_ledger(self._ledger_binding(), evidence)
+        timestamp = _timestamp(self._time())
+        record = {**self._ledger_binding(), "state": "CLASSIFIED", "version": 1, "attempt_count": 0,
+            "classifier_identity_proof_sha256": identity_proof_sha256, "approver_identity_proof_sha256": None,
+            "reconciliation_identity_proof_sha256": None, "approval_digest": None, "attempt_digest": None,
+            "verification_digest": None, "classified_at": timestamp, "approved_at": None, "attempted_at": None,
+            "verified_at": None, "updated_at": timestamp, "effect_attribution": None,
+            "next_required_control": "WORKFORCE_OWNER_REVIEW_REQUIRED"}
+        record["ledger_digest"] = canonical_digest(record)
+        return self._validate_ledger(record)
+
+    def _validate_ledger(self, value: Mapping[str, Any]) -> dict[str, Any]:
+        record = dict(value)
+        mutable = {"state", "version", "attempt_count", "classifier_identity_proof_sha256",
+            "approver_identity_proof_sha256", "reconciliation_identity_proof_sha256", "approval_digest",
+            "attempt_digest", "verification_digest", "classified_at", "approved_at", "attempted_at",
+            "verified_at", "updated_at", "effect_attribution", "next_required_control", "ledger_digest"}
+        expected = self._ledger_binding()
+        _workforce_require(set(record) == set(expected) | mutable, "LEDGER_MALFORMED")
+        _workforce_require(all(record[key] == item for key, item in expected.items()), "LEDGER_BINDING_CHANGED")
+        digest = record.pop("ledger_digest")
+        _workforce_require(canonical_digest(record) == digest, "LEDGER_DIGEST_INVALID")
+        record["ledger_digest"] = digest
+        states = ("CLASSIFIED", "EXCEPTION_ACCEPTED", "ATTEMPTED", "RETIRED_RECONCILED")
+        state = record["state"]
+        _workforce_require(type(state) is str and state in states, "LEDGER_STATE_INVALID")
+        index = states.index(state)
+        _workforce_require(type(record["version"]) is int and record["version"] == index + 1
+                           and type(record["attempt_count"]) is int and record["attempt_count"] == int(index >= 2), "LEDGER_STATE_INVALID")
+        for name, present in (
+            ("classifier_identity_proof_sha256", True), ("approver_identity_proof_sha256", index >= 1),
+            ("reconciliation_identity_proof_sha256", index == 3), ("approval_digest", index >= 1),
+            ("attempt_digest", index >= 2), ("verification_digest", index == 3),
+        ):
+            if present:
+                _require_digest(record[name], "LEDGER_STATE_INVALID")
+            else:
+                _workforce_require(record[name] is None, "LEDGER_STATE_INVALID")
+        times = []
+        for i, name in enumerate(("classified_at", "approved_at", "attempted_at", "verified_at")):
+            if i <= index:
+                value = _parse_timestamp(record[name])
+                _workforce_require(value >= self.config.parse_time(self.config.not_before), "LEDGER_TIME_INVALID")
+                if i != 3:
+                    _workforce_require(value < self.config.parse_time(self.config.expires_at), "LEDGER_TIME_INVALID")
+                times.append(value)
+            else:
+                _workforce_require(record[name] is None, "LEDGER_TIME_INVALID")
+        updated = _parse_timestamp(record["updated_at"])
+        _workforce_require(times == sorted(times) and updated >= times[-1], "LEDGER_TIME_INVALID")
+        if index != 3:
+            _workforce_require(updated < self.config.parse_time(self.config.expires_at), "LEDGER_TIME_INVALID")
+        controls = ({"WORKFORCE_OWNER_REVIEW_REQUIRED"}, {"ONE_SHOT_ATTEMPT_REQUIRED"},
+                    {"READ_ONLY_RECONCILIATION_REQUIRED"},
+                    {"WORKFORCE_RETIREMENT_ROLE_REVOCATION_REQUIRED", "WORKFORCE_PAB_AND_REVOCATION_REQUIRED"})
+        _workforce_require(record["next_required_control"] in controls[index], "LEDGER_STATE_INVALID")
+        _workforce_require(record["effect_attribution"] == ("BROKER_SERVICE_PRINCIPAL_AFTER_WORKFORCE_IAM" if index == 3 else None), "LEDGER_STATE_INVALID")
+        return record

@@ -21,7 +21,7 @@ contracts so a later, separately authorized live lane can fail closed.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatchcase
 from hashlib import sha256
 import json
@@ -4666,6 +4666,567 @@ def _compile_unvalidated(
         {key: value for key, value in plan.items() if key != "plan_digest"}
     )
     return plan
+
+
+def _workforce_function_request(frozen: Mapping[str, Any], manifest: Mapping[str, Any]) -> dict[str, Any]:
+    signed = frozen["artifact_signing_contract"]["signed_destination"]
+    return {
+        "FunctionName": BROKER_FUNCTION_NAME, "Description": "GUG-215 exact retained Change Set retirement PEP",
+        "Runtime": "python3.12", "Role": _role_arn(BROKER_ROLE_NAME), "Handler": manifest["handler"],
+        "Code": {"S3Bucket": signed["bucket"], "S3Key": signed["key"], "S3ObjectVersion": signed["version_id"]},
+        "Timeout": 60, "MemorySize": 256, "Publish": False, "PackageType": "Zip", "Architectures": ["x86_64"],
+        "Environment": {"Variables": {}}, "CodeSigningConfigArn": frozen["artifact_signing_contract"]["code_signing_config"]["arn"],
+        "LoggingConfig": {"LogFormat": "JSON", "ApplicationLogLevel": "ERROR", "SystemLogLevel": "WARN", "LogGroup": LOG_GROUP_NAME},
+        "Tags": {"managed_by": "reviewed-direct-iam", "service": "scanalyze-platform-authority", "work_package": "GUG-215",
+                 "environment": "production", "production": "true", "source_commit": frozen["source"]["commit"]},
+    }
+
+
+def _workforce_inert_preparation(frozen: Mapping[str, Any], manifest: Mapping[str, Any]) -> dict[str, Any]:
+    # Reuse the established deny-all boundary name/document as an inert policy,
+    # never as GUG217 identity proof. No legacy installer grant is imported.
+    arn = _policy_arn(PROOF_BOUNDARY_NAME)
+    document = {"Version": "2012-10-17", "Statement": [{"Sid": "DenyEveryProofSessionAction", "Effect": "Deny", "Action": "*", "Resource": "*"}]}
+    digest = canonical_digest(document)
+    trust = _lambda_trust_policy()
+    function_request = _workforce_function_request(frozen, manifest)
+    tags = [{"Key": key, "Value": value} for key, value in function_request["Tags"].items()]
+    return {"status": "INERT_PREPARATION_EFFECT_POLICY_PENDING",
+        "policy": {"arn": arn, "document": document, "document_digest": digest,
+            "managed_policy_characters": len(canonical_json(document)),
+            "create_request": {"PolicyName": PROOF_BOUNDARY_NAME, "Path": MANAGED_POLICY_PATH,
+                               "PolicyDocument": canonical_json(document), "Tags": tags}},
+        "role": {"arn": _role_arn(BROKER_ROLE_NAME), "provider_role_id": None,
+            "trust_document": trust, "trust_document_digest": canonical_digest(trust),
+            "permissions_boundary_arn": arn, "attached_policy_arns": [arn], "inline_policy_names": [],
+            "attached_document_digest": digest, "boundary_document_digest": digest,
+            "create_request": {"RoleName": BROKER_ROLE_NAME, "Path": "/", "AssumeRolePolicyDocument": canonical_json(trust),
+                "MaxSessionDuration": 3600, "PermissionsBoundary": arn, "Tags": tags},
+            "attach_request": {"RoleName": BROKER_ROLE_NAME, "PolicyArn": arn}},
+        "function": {"create_request": function_request,
+            "expected_signed_code_sha256": frozen["artifact_signing_contract"]["signed_destination"]["lambda_code_sha256"],
+            "signed_s3_version_id": frozen["artifact_signing_contract"]["signed_destination"]["version_id"],
+            "runtime_management": {"UpdateRuntimeOn": "Manual", "RuntimeVersionArn": manifest["broker_runtime_version_arn"]},
+            "reserved_concurrent_executions": 1,
+            "configuration_status": "PENDING_REAL_BROKER_ROLE_READBACK_AND_EFFECT_WINDOW",
+            "environment_quota_status": "PENDING_FULL_SCHEMA2_ENVIRONMENT_MAX_4096_BYTES",
+            "runtime_configuration": None, "numeric_version_arn": None},
+        "ledger": {"table_arn": _table_arn(), "retirement_id": "gug215#sha256:" + sha256(frozen["target"]["change_set_id"].encode()).hexdigest()},
+        "activation_status": "PENDING_SEPARATE_ACTIVE_POLICY_V1_NOT_NEW_VERSION_OF_INERT_POLICY",
+        "post_publication_binding": None, "installation_performed": False, "retry_permitted": False}
+
+
+def compile_workforce_broker_contract(
+    *, intent: Mapping[str, Any], package_manifest: Mapping[str, Any], policy_template: bytes, evaluated_at: datetime,
+) -> dict[str, Any]:
+    """Pure compiler used by GUG363 workforce-plan, never an installation grant.
+
+    Policy bytes come from the caller's verified clean Git snapshot. Missing
+    provider RoleId, effect window and numeric publication remain PENDING. The
+    legacy seven-role compiler and its live authorities are not reused as grants.
+    """
+    frozen = gug363._workforce_snapshot(intent)
+    gug363._validate_workforce_intent(frozen, now=evaluated_at)
+    contract = frozen["artifact_signing_contract"]
+    target, roles = frozen["target"], frozen["roles"]
+    function_arn = _function_arn()
+    boundary_arn, role_arn = _policy_arn(BROKER_BOUNDARY_NAME), _role_arn(BROKER_ROLE_NAME)
+    retirement_id = "gug215#sha256:" + sha256(target["change_set_id"].encode("utf-8")).hexdigest()
+    if frozen["effect_window"] is None or frozen["ledger_kms_key"] is None:
+        # No placeholder dates or 24h Delete grant. Select/review a <=15m
+        # effect interval only after signed source and prerequisites exist.
+        return _workforce_inert_preparation(frozen, package_manifest)
+    replacements = {
+        "stack_arn": target["stack_id"], "change_set_name": target["change_set_id"],
+        "retirement_id": retirement_id, "ledger_arn": _table_arn(), "broker_function_arn": function_arn,
+        "reader_arn": frozen["reader"]["role_arn"], "reader_start": frozen["reader"]["not_before"],
+        "reader_end": frozen["reader"]["not_after"], "broker_role_arn": role_arn,
+        "effect_start": frozen["effect_window"]["not_before"], "effect_end": frozen["effect_window"]["expires_at"],
+        "ledger_kms_key_arn": frozen["ledger_kms_key"]["arn"],
+        "class_role_arn": roles["classify"]["role_arn"], "approve_role_arn": roles["retire"]["role_arn"],
+        "boundary_arn": boundary_arn, "code_signing_config_arn": contract["code_signing_config"]["arn"],
+        "api_arn": f"arn:aws:apigateway:us-east-1::/apis/{frozen['api_id']}",
+        "log_stream_arn": f"arn:aws:logs:us-east-1:042360977644:log-group:{LOG_GROUP_NAME}:log-stream:*",
+    }
+    try:
+        if (type(policy_template) is not bytes or _byte_digest(policy_template) != frozen["source"]["policy_template_sha256"]):
+            _fail("WORKFORCE_POLICY_SOURCE_MISMATCH")
+        raw = policy_template.decode("utf-8")
+        if set(_PLACEHOLDER_RE.findall(raw)) != {"${" + key + "}" for key in replacements}:
+            _fail("BOUNDARY_TEMPLATE_PLACEHOLDER_INVALID")
+        # Substitute JSON values, not arbitrary text fragments; no escape,
+        # interpolation or caller-defined policy structure is accepted.
+        template = json.loads(raw, object_pairs_hook=_unique_pairs)
+        def replace(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: replace(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [replace(item) for item in value]
+            if isinstance(value, str):
+                for key, item in replacements.items():
+                    value = value.replace("${" + key + "}", item)
+                if "${" in value:
+                    _fail("BOUNDARY_TEMPLATE_PLACEHOLDER_INVALID")
+            return value
+        document = replace(template)
+    except (UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        _fail("WORKFORCE_POLICY_INVALID")
+    # Exact action/resource pairs prevent an externally rehashed wider template
+    # from producing a useful policy under the workforce contract.
+    specifications = {
+        "ReadExactRetainedStack": (["cloudformation:DescribeStacks", "cloudformation:GetTemplate", "cloudformation:ListChangeSets", "cloudformation:ListStackResources"], target["stack_id"]),
+        "DescribeExactChangeSet": ("cloudformation:DescribeChangeSet", target["stack_id"]),
+        "RetireExactChangeSetWithinEffectWindow": ("cloudformation:DeleteChangeSet", target["stack_id"]),
+        "ReadAccountPabAndCallerIdentity": (["s3:GetAccountPublicAccessBlock", "sts:GetCallerIdentity"], "*"),
+        "ReadExactLedgerKmsKey": ("kms:DescribeKey", replacements["ledger_kms_key_arn"]),
+        "DecryptExactLedgerKeyThroughDynamoDb": ("kms:Decrypt", replacements["ledger_kms_key_arn"]),
+        "ReadExactLedgerControls": (["dynamodb:DescribeContinuousBackups", "dynamodb:DescribeTable", "dynamodb:DescribeTimeToLive", "dynamodb:GetResourcePolicy", "dynamodb:ListTagsOfResource"], _table_arn()),
+        "UseSameRetirementLedgerKey": (["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"], _table_arn()),
+        "AssumeExactManagementReader": ("sts:AssumeRole", replacements["reader_arn"]),
+        "ReadExactRoles": (["iam:GetRole", "iam:GetRolePolicy", "iam:ListAttachedRolePolicies", "iam:ListRolePolicies"], [role_arn, replacements["class_role_arn"], replacements["approve_role_arn"]]),
+        "ReadExactBrokerManagedPolicy": (["iam:GetPolicy", "iam:GetPolicyVersion", "iam:ListEntitiesForPolicy", "iam:ListPolicyVersions"], boundary_arn),
+        "ReadBrokerNumericConfiguration": (["lambda:GetFunctionCodeSigningConfig", "lambda:GetFunctionConcurrency", "lambda:GetFunctionConfiguration", "lambda:GetPolicy", "lambda:GetRuntimeManagementConfig"], [function_arn, function_arn + ":*"]),
+        "ReadExactCodeSigningConfig": ("lambda:GetCodeSigningConfig", replacements["code_signing_config_arn"]),
+        "ReadExactDeployedApi": ("apigateway:GET", [replacements["api_arn"] + suffix for suffix in ("", "/routes", "/integrations", "/stages", "/exports/OAS30")]),
+        "WriteExactBrokerLogStreams": (["logs:CreateLogStream", "logs:PutLogEvents"], replacements["log_stream_arn"]),
+    }
+    statements = _statements(document)
+    expected_rows = [{"Sid": "DenyMissingOrForeignFunctionOrigin", "Effect": "Deny", "NotAction": "kms:Decrypt", "Resource": "*",
+                      "Condition": {"ArnNotEqualsIfExists": {"lambda:SourceFunctionArn": function_arn}}},
+        {"Sid": "DenyDecryptOtherKey", "Effect": "Deny", "Action": "kms:Decrypt", "NotResource": replacements["ledger_kms_key_arn"]},
+        {"Sid": "DenyDecryptMissingOrForeignService", "Effect": "Deny", "Action": "kms:Decrypt", "Resource": "*",
+         "Condition": {"StringNotEqualsIfExists": {"kms:ViaService": "dynamodb.us-east-1.amazonaws.com"}}},
+        {"Sid": "DenyDecryptMissingOrForeignAccount", "Effect": "Deny", "Action": "kms:Decrypt", "Resource": "*",
+         "Condition": {"StringNotEqualsIfExists": {"kms:CallerAccount": AUTHORITY_ACCOUNT_ID}}},
+        {"Sid": "DenyDecryptWithoutForwardAccess", "Effect": "Deny", "Action": "kms:Decrypt", "Resource": "*",
+         "Condition": {"BoolIfExists": {"aws:ViaAWSService": "false"}}}]
+    for sid, (actions, resources) in specifications.items():
+        conditions: dict[str, Any] = {}
+        if sid in {"DescribeExactChangeSet", "RetireExactChangeSetWithinEffectWindow"}:
+            conditions["StringEquals"] = {"cloudformation:ChangeSetName": replacements["change_set_name"]}
+            if sid == "RetireExactChangeSetWithinEffectWindow":
+                conditions.update({"DateGreaterThanEquals": {"aws:CurrentTime": replacements["effect_start"]},
+                                   "DateLessThan": {"aws:CurrentTime": replacements["effect_end"]}})
+        elif sid == "UseSameRetirementLedgerKey":
+            conditions.update({"ForAllValues:StringEquals": {"dynamodb:LeadingKeys": [retirement_id]}, "Null": {"dynamodb:LeadingKeys": "false"}})
+        elif sid == "AssumeExactManagementReader":
+            conditions.update({"StringEquals": {"sts:RoleSessionName": "gug215-workforce-reader"},
+                "DateGreaterThanEquals": {"aws:CurrentTime": replacements["reader_start"]},
+                "DateLessThan": {"aws:CurrentTime": replacements["reader_end"]}})
+        elif sid == "DecryptExactLedgerKeyThroughDynamoDb":
+            conditions.update({"StringEquals": {"kms:ViaService": "dynamodb.us-east-1.amazonaws.com",
+                                                "kms:CallerAccount": AUTHORITY_ACCOUNT_ID},
+                               "Bool": {"aws:ViaAWSService": "true"}})
+        row = {"Sid": sid, "Effect": "Allow", "Action": actions, "Resource": resources}
+        if conditions:
+            row["Condition"] = conditions
+        expected_rows.append(row)
+    all_actions = [action for actions, _ in specifications.values() for action in _strings(actions, "WORKFORCE_ACTION_INVALID")]
+    expected_rows.append({"Sid": "DenyEveryOtherAction", "Effect": "Deny", "NotAction": all_actions, "Resource": "*"})
+    # Order of NotAction members has no IAM meaning; every other field is exact.
+    if statements and isinstance(statements[-1].get("NotAction"), list):
+        statements[-1]["NotAction"] = sorted(statements[-1]["NotAction"])
+        expected_rows[-1]["NotAction"] = sorted(expected_rows[-1]["NotAction"])
+    if statements != expected_rows:
+        _fail("WORKFORCE_POLICY_SCOPE_CHANGED")
+    # Compact only AFTER exact source-template validation. These seven rows
+    # have disjoint service namespaces, so combining their actions/resources
+    # adds no valid service action/resource pair. Keep IAM policy and Lambda
+    # code-signing-config rows separate from the same-service role/function
+    # rows. Never merge Resource '*', conditions, Decrypt, or arbitrary rows.
+    compact_services = {
+        "ReadExactRetainedStack": "cloudformation", "ReadExactLedgerKmsKey": "kms",
+        "ReadExactLedgerControls": "dynamodb", "ReadExactRoles": "iam",
+        "ReadBrokerNumericConfiguration": "lambda", "ReadExactDeployedApi": "apigateway",
+        "WriteExactBrokerLogStreams": "logs",
+    }
+    merged: dict[str, Any] = {"Effect": "Allow", "Action": [], "Resource": []}
+    emitted = []
+    observed_services = set()
+    date_count = 0
+    for statement in statements:
+        sid = statement["Sid"]
+        row = {key: value for key, value in statement.items() if key != "Sid"}
+        if sid in compact_services:
+            service = compact_services[sid]
+            actions = _strings(row["Action"], "WORKFORCE_ACTION_INVALID")
+            resources = _strings(row["Resource"], "WORKFORCE_RESOURCE_INVALID")
+            if (set(row) != {"Effect", "Action", "Resource"} or row["Effect"] != "Allow"
+                    or service in observed_services
+                    or any(not action.startswith(service + ":") or "*" in action for action in actions)
+                    or any(not resource.startswith("arn:aws:" + service + ":") for resource in resources)):
+                _fail("WORKFORCE_POLICY_COMPACTION_INVALID")
+            observed_services.add(service)
+            merged["Action"].extend(actions)
+            merged["Resource"].extend(resources)
+            continue
+        # IAM Date operators accept ISO8601 or UNIX epoch. Only these four
+        # prevalidated UTC whole-second instants change presentation. Preserve
+        # operators exactly, including the exclusive end; never truncate.
+        for operator, conditions in row.get("Condition", {}).items():
+            if operator not in {"DateGreaterThanEquals", "DateLessThan"}:
+                continue
+            if (sid not in {"RetireExactChangeSetWithinEffectWindow", "AssumeExactManagementReader"}
+                    or set(conditions) != {"aws:CurrentTime"}):
+                _fail("WORKFORCE_POLICY_COMPACTION_INVALID")
+            instant = conditions["aws:CurrentTime"]
+            if type(instant) is not str or re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", instant) is None:
+                _fail("WORKFORCE_POLICY_COMPACTION_INVALID")
+            parsed = datetime.fromisoformat(instant.replace("Z", "+00:00"))
+            epoch = parsed.timestamp()
+            if parsed.microsecond != 0 or not epoch.is_integer():
+                _fail("WORKFORCE_POLICY_COMPACTION_INVALID")
+            conditions["aws:CurrentTime"] = str(int(epoch))
+            date_count += 1
+        emitted.append(row)
+    if observed_services != set(compact_services.values()) or date_count != 4:
+        _fail("WORKFORCE_POLICY_COMPACTION_INVALID")
+    document = {"Version": document["Version"], "Statement": emitted + [merged]}
+    policy_json = canonical_json(document)
+    if len(policy_json) > 6144:
+        _fail("WORKFORCE_MANAGED_POLICY_TOO_LARGE")
+    policy_digest = canonical_digest(document)
+    trust = _lambda_trust_policy()
+    if len(canonical_json(trust)) > 2048:
+        _fail("WORKFORCE_TRUST_TOO_LARGE")
+    tags = [{"Key": key, "Value": value} for key, value in {
+        "managed_by": "reviewed-direct-iam", "service": "scanalyze-platform-authority",
+        "work_package": "GUG-215", "environment": "production", "production": "true",
+        "source_commit": frozen["source"]["commit"],
+    }.items()]
+    signed = contract["signed_destination"]
+    # Creation is deliberately inert, as in _function_contract: no runtime
+    # configuration, publication, route or fabricated RoleId. Missing binding
+    # makes the handler fail closed until the later reviewed phase is installed.
+    function_request = _workforce_function_request(frozen, package_manifest)
+    return {
+        "status": "PREPARED_REQUIRES_INSTALLER_AUTHORITY_AND_ABSENCE_READBACK",
+        "policy": {"arn": boundary_arn, "document": document, "document_digest": policy_digest,
+            "managed_policy_characters": len(policy_json), "create_request": {"PolicyName": BROKER_BOUNDARY_NAME,
+                "Path": MANAGED_POLICY_PATH, "PolicyDocument": policy_json, "Tags": tags}},
+        "role": {"arn": role_arn, "provider_role_id": None, "trust_document": trust,
+            "trust_document_digest": canonical_digest(trust), "permissions_boundary_arn": boundary_arn,
+            "attached_policy_arns": [boundary_arn], "inline_policy_names": [],
+            "attached_document_digest": policy_digest, "boundary_document_digest": policy_digest,
+            "create_request": None, "attach_request": None,
+            "transition_status": "PENDING_VERIFIED_INERT_ROLE_ID_AND_REVIEWED_INSTALLER_ACTIVATION",
+            "required_inert_policy_arn": _policy_arn(PROOF_BOUNDARY_NAME)},
+        "function": {"create_request": function_request, "expected_signed_code_sha256": signed["lambda_code_sha256"],
+            "signed_s3_version_id": signed["version_id"], "runtime_management": {"UpdateRuntimeOn": "Manual",
+                "RuntimeVersionArn": package_manifest["broker_runtime_version_arn"]}, "reserved_concurrent_executions": 1,
+            "runtime_configuration": None, "numeric_version_arn": None,
+            "configuration_status": "PENDING_REAL_BROKER_ROLE_READBACK_AND_EFFECT_WINDOW",
+            "environment_quota_status": "PENDING_FULL_SCHEMA2_ENVIRONMENT_MAX_4096_BYTES"},
+        "ledger": {"table_arn": _table_arn(), "retirement_id": retirement_id,
+            "required_tags": {**{row["Key"]: row["Value"] for row in _table_tags({})}, "environment": "production", "production": "true"},
+            "status": "PENDING_SAME_LEDGER_CONTROLS_NO_NEW_KEY_OR_FACTORY_AUTHORITY"},
+        "post_publication_binding": None, "installation_performed": False, "retry_permitted": False,
+    }
+
+
+WORKFORCE_CONFIGURATION_READBACK_TYPE = "scanalyze.platform_authority.workforce_configuration_readback.v1"
+WORKFORCE_CONFIGURATION_PLAN_TYPE = "scanalyze.platform_authority.workforce_configuration_plan.v1"
+
+
+def _wf_object(value: Any, keys: set[str] | None = None) -> dict[str, Any]:
+    if type(value) is not dict or (keys is not None and set(value) != keys):
+        _fail("WORKFORCE_CONFIGURATION_READBACK_INVALID")
+    metadata = value.get("ResponseMetadata")
+    if metadata is not None and (type(metadata) is not dict
+            or type(metadata.get("HTTPStatusCode")) is not int or metadata["HTTPStatusCode"] != 200
+            or type(metadata.get("RetryAttempts", 0)) is not int or metadata.get("RetryAttempts", 0) != 0):
+        _fail("WORKFORCE_CONFIGURATION_READBACK_INVALID")
+    return value
+
+
+def _wf_complete(value: Any, field: str) -> list[Any]:
+    record = _wf_object(value)
+    if any(key in record for key in ("Marker", "NextToken", "NextMarker")) or record.get("IsTruncated", False) is not False:
+        _fail("WORKFORCE_CONFIGURATION_PARTIAL_READBACK")
+    if type(record.get(field)) is not list or len(record[field]) > 256:
+        _fail("WORKFORCE_CONFIGURATION_READBACK_INVALID")
+    return record[field]
+
+
+def _wf_iam_document(value: Any) -> dict[str, Any]:
+    # IAM Query responses may URL-encode PolicyDocument. Never interpret it as
+    # code or accept duplicate JSON keys, nonfinite numbers or arbitrary types.
+    from urllib.parse import unquote
+    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, item in items:
+            if key in result:
+                _fail("WORKFORCE_CONFIGURATION_POLICY_INVALID")
+            result[key] = item
+        return result
+    if type(value) is str:
+        value = json.loads(unquote(value), object_pairs_hook=pairs,
+                           parse_constant=lambda _value: _fail("WORKFORCE_CONFIGURATION_POLICY_INVALID"))
+    return _wf_object(value)
+
+
+def _wf_iam_complete(value: Any, field: str) -> list[Any]:
+    if _wf_object(value).get("IsTruncated") is not False:
+        _fail("WORKFORCE_CONFIGURATION_PARTIAL_READBACK")
+    return _wf_complete(value, field)
+
+
+def _wf_role_snapshot(value: Any, *, arn: str, trust_digest: str, role_id: str | None,
+                      boundary: str | None, attached: list[dict[str, str]], inline_digest: str | None) -> str:
+    row = _wf_object(value, {"get_role", "list_role_policies", "list_attached_role_policies", "get_role_policy"})
+    role = _wf_object(_wf_object(row["get_role"]).get("Role"))
+    actual_id = role.get("RoleId")
+    expected_boundary = None if boundary is None else {"PermissionsBoundaryType": "Policy", "PermissionsBoundaryArn": boundary}
+    if (role.get("Arn") != arn or role.get("RoleName") != arn.rsplit("/", 1)[1]
+            or type(actual_id) is not str or re.fullmatch(r"AROA[A-Z0-9]{17}", actual_id) is None
+            or (role_id is not None and role_id != actual_id)
+            or canonical_digest(_wf_iam_document(role.get("AssumeRolePolicyDocument"))) != trust_digest
+            or role.get("PermissionsBoundary") != expected_boundary):
+        _fail("WORKFORCE_CONFIGURATION_ROLE_CHANGED")
+    policies = _wf_iam_complete(row["list_role_policies"], "PolicyNames")
+    if _wf_iam_complete(row["list_attached_role_policies"], "AttachedPolicies") != attached:
+        _fail("WORKFORCE_CONFIGURATION_ROLE_CHANGED")
+    if inline_digest is None:
+        if policies != [] or row["get_role_policy"] is not None or role.get("Path") != "/" or role.get("MaxSessionDuration") != 3600:
+            _fail("WORKFORCE_CONFIGURATION_ROLE_CHANGED")
+    else:
+        inline = _wf_object(row["get_role_policy"])
+        if (len(policies) != 1 or type(policies[0]) is not str or not policies[0]
+                or inline.get("RoleName") != role["RoleName"] or inline.get("PolicyName") != policies[0]
+                or canonical_digest(_wf_iam_document(inline.get("PolicyDocument"))) != inline_digest):
+            _fail("WORKFORCE_CONFIGURATION_ROLE_CHANGED")
+    return actual_id
+
+
+def _wf_policy_snapshot(value: Any, *, arn: str, digest: str, role_id: str | None) -> None:
+    row = _wf_object(value, {"get_policy", "list_policy_versions", "get_policy_version", "identity_entities", "boundary_entities"})
+    policy = _wf_object(_wf_object(row["get_policy"]).get("Policy"))
+    count = 0 if role_id is None else 1
+    if (policy.get("Arn") != arn or policy.get("DefaultVersionId") != "v1" or policy.get("IsAttachable") is not True
+            or any(type(policy.get(key)) is not int or policy[key] != count for key in ("AttachmentCount", "PermissionsBoundaryUsageCount"))):
+        _fail("WORKFORCE_CONFIGURATION_POLICY_CHANGED")
+    versions = _wf_iam_complete(row["list_policy_versions"], "Versions")
+    if (len(versions) != 1 or type(versions[0]) is not dict or versions[0].get("VersionId") != "v1"
+            or versions[0].get("IsDefaultVersion") is not True
+            or set(versions[0]) - {"VersionId", "IsDefaultVersion", "CreateDate"}):
+        _fail("WORKFORCE_CONFIGURATION_POLICY_CHANGED")
+    if "CreateDate" in versions[0]:
+        created = versions[0]["CreateDate"]
+        if type(created) is not str:
+            _fail("WORKFORCE_CONFIGURATION_POLICY_CHANGED")
+        parsed = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            _fail("WORKFORCE_CONFIGURATION_POLICY_CHANGED")
+    version = _wf_object(_wf_object(row["get_policy_version"]).get("PolicyVersion"))
+    if (version.get("VersionId") != "v1" or version.get("IsDefaultVersion") is not True
+            or canonical_digest(_wf_iam_document(version.get("Document"))) != digest):
+        _fail("WORKFORCE_CONFIGURATION_POLICY_CHANGED")
+    for key in ("identity_entities", "boundary_entities"):
+        entities = _wf_object(row[key])
+        roles = _wf_iam_complete(entities, "PolicyRoles")
+        if entities.get("PolicyGroups") != [] or entities.get("PolicyUsers") != [] or len(roles) != count:
+            _fail("WORKFORCE_CONFIGURATION_POLICY_CHANGED")
+        if count and (type(roles[0]) is not dict or roles[0].get("RoleName") != BROKER_ROLE_NAME
+                or roles[0].get("RoleId", role_id) != role_id or set(roles[0]) - {"RoleName", "RoleId"}):
+            _fail("WORKFORCE_CONFIGURATION_POLICY_CHANGED")
+
+
+def _wf_certify_ledger(readback: Any, *, config: Any, key_arn: str) -> None:
+    from types import SimpleNamespace
+    from tooling.platform_authority_change_set_retirement_broker import RetirementBroker, EXPECTED_LEDGER_TAGS, WORKFORCE_WRITE_ACTIONS
+
+    row = _wf_object(readback, {"describe_table", "describe_key", "describe_time_to_live", "describe_continuous_backups",
+                              "list_tags_of_resource", "get_resource_policy", "get_item_request", "get_item"})
+    expected_item_request = {"TableName": config.ledger_table_name, "Key": {"retirement_id": {"S": config.retirement_id}},
+                             "ConsistentRead": True, "ProjectionExpression": "document"}
+    if row["get_item_request"] != expected_item_request or _wf_object(row["get_item_request"]).get("ConsistentRead") is not True:
+        _fail("WORKFORCE_LEDGER_QUERY_CHANGED")
+    table = _wf_object(_wf_object(row["describe_table"]).get("Table"))
+    if _wf_object(table.get("SSEDescription")).get("KMSMasterKeyArn") != key_arn:
+        _fail("WORKFORCE_LEDGER_NOT_CERTIFIED")
+    # Reuse the real runtime ledger predicates with a closed captured-response
+    # adapter. This performs no provider call and does not authenticate capture.
+    def captured(name: str, expected: dict[str, Any]):
+        def read(**kwargs: Any) -> dict[str, Any]:
+            if kwargs != expected:
+                _fail("WORKFORCE_LEDGER_QUERY_CHANGED")
+            return _wf_object(row[name])
+        return read
+
+    methods = {name: captured(name, {"TableName": config.ledger_table_name})
+               for name in ("describe_table", "describe_time_to_live", "describe_continuous_backups")}
+    methods.update({name: captured(name, {"ResourceArn": config.table_arn})
+                    for name in ("list_tags_of_resource", "get_resource_policy")})
+    class OfflineLedgerControls(RetirementBroker):
+        def _ledger_control_tags(self) -> dict[str, str]:
+            return {**EXPECTED_LEDGER_TAGS, "environment": "production", "production": "true"}
+
+        def _ledger_write_actions(self) -> frozenset[str]:
+            return WORKFORCE_WRITE_ACTIONS
+    validator = OfflineLedgerControls(config=config, clients=SimpleNamespace(
+        dynamodb=SimpleNamespace(**methods), kms=SimpleNamespace(describe_key=captured("describe_key", {"KeyId": key_arn}))))
+    validator._verify_table_controls()
+    # Never reset or replace an occupied historical retirement key. This phase
+    # is initial materialization; reconciliation has a different runtime path.
+    item = _wf_object(row["get_item"])
+    if "Item" in item or set(item) - {"ResponseMetadata", "ConsumedCapacity"}:
+        _fail("WORKFORCE_LEDGER_SLOT_OCCUPIED")
+
+
+def _wf_function_snapshot(value: Any, *, plan: Mapping[str, Any]) -> str:
+    row = _wf_object(value, {"get_function_configuration", "get_runtime_management_config", "get_function_concurrency",
+                            "get_function_code_signing_config", "list_versions_by_function", "list_aliases",
+                            "list_function_url_configs", "get_policy_error"})
+    request = plan["compiled"]["function"]["create_request"]
+    function = _wf_object(row["get_function_configuration"])
+    signed = plan["artifact_signing_contract"]["signed_destination"]
+    expected = {key: request[key] for key in ("Role", "Runtime", "Handler", "MemorySize", "Timeout", "Architectures", "Environment", "LoggingConfig")}
+    expected.update({"FunctionName": BROKER_FUNCTION_NAME, "FunctionArn": _function_arn(), "Version": "$LATEST",
+        "CodeSha256": signed["lambda_code_sha256"], "CodeSize": signed["archive_size_bytes"], "PackageType": "Zip",
+        "State": "Active", "LastUpdateStatus": "Successful", "RuntimeVersionConfig": {"RuntimeVersionArn": plan["compiled"]["function"]["runtime_management"]["RuntimeVersionArn"]},
+        "EphemeralStorage": {"Size": 512}, "TracingConfig": {"Mode": "PassThrough"}})
+    vpc = _wf_object(function.get("VpcConfig"))
+    if (set(vpc) - {"SubnetIds", "SecurityGroupIds", "VpcId", "Ipv6AllowedForDualStack"}
+            or {key: vpc.get(key) for key in ("SubnetIds", "SecurityGroupIds", "VpcId")} != {"SubnetIds": [], "SecurityGroupIds": [], "VpcId": ""}
+            or ("Ipv6AllowedForDualStack" in vpc and vpc["Ipv6AllowedForDualStack"] is not False)):
+        _fail("WORKFORCE_CONFIGURATION_FUNCTION_CHANGED")
+    if (any(function.get(key) != item for key, item in expected.items())
+            or any(function.get(key) not in (None, [], {}, "") for key in ("Layers", "FileSystemConfigs", "DeadLetterConfig", "KMSKeyArn"))
+            or function.get("SnapStart") not in (None, {}, {"ApplyOn": "None", "OptimizationStatus": "Off"})):
+        _fail("WORKFORCE_CONFIGURATION_FUNCTION_CHANGED")
+    management = _wf_object(row["get_runtime_management_config"])
+    if (management.get("FunctionArn") != _function_arn() or management.get("UpdateRuntimeOn") != "Manual"
+            or management.get("RuntimeVersionArn") != expected["RuntimeVersionConfig"]["RuntimeVersionArn"]
+            or type(_wf_object(row["get_function_concurrency"]).get("ReservedConcurrentExecutions")) is not int
+            or row["get_function_concurrency"]["ReservedConcurrentExecutions"] != 1
+            or _wf_object(row["get_function_code_signing_config"]).get("CodeSigningConfigArn") != request["CodeSigningConfigArn"]):
+        _fail("WORKFORCE_CONFIGURATION_FUNCTION_CHANGED")
+    versions = _wf_complete(row["list_versions_by_function"], "Versions")
+    if (len(versions) != 1 or type(versions[0]) is not dict or versions[0].get("Version") != "$LATEST"
+            or versions[0].get("FunctionArn") != _function_arn()
+            or versions[0].get("CodeSha256") != signed["lambda_code_sha256"] or versions[0].get("Role") != request["Role"]
+            or versions[0].get("RevisionId") != function.get("RevisionId")
+            or _wf_complete(row["list_aliases"], "Aliases") != []
+            or _wf_complete(row["list_function_url_configs"], "FunctionUrlConfigs") != []
+            or row["get_policy_error"] != {"code": "ResourceNotFoundException", "function_arn": _function_arn()}):
+        _fail("WORKFORCE_CONFIGURATION_FUNCTION_CHANGED")
+    revision = function.get("RevisionId")
+    if type(revision) is not str or re.fullmatch(r"[^\s]{1,255}", revision) is None:
+        _fail("WORKFORCE_CONFIGURATION_REVISION_INVALID")
+    return revision
+
+
+def finalize_workforce_configuration_plan(
+    *, intent: Mapping[str, Any], expected_intent_digest: str, package_manifest: Mapping[str, Any],
+    package_archive: bytes, signed_archive: bytes, signing_readback: Mapping[str, Any],
+    expected_signing_readback_digest: str, configuration_readback: Mapping[str, Any],
+    expected_configuration_readback_digest: str, repo_root: Path, evaluated_at: datetime,
+) -> dict[str, Any]:
+    """Rebuild the reviewed source plan and prepare schema2; never authorize I/O.
+
+    Independent pins protect integrity, not the authenticity of provider capture.
+    Source CI, live signing admission and installer authority remain separate gates.
+    """
+    try:
+        from tooling.platform_authority_change_set_retirement_broker import WorkforceRetirementConfig
+        frozen_intent = gug363._workforce_snapshot(intent)
+        manifest = gug363._workforce_snapshot(package_manifest)
+        evidence = gug363._workforce_snapshot(configuration_readback)
+        if canonical_digest(evidence) != gug363._require_digest(expected_configuration_readback_digest, "WORKFORCE_CONFIGURATION_PIN_INVALID"):
+            _fail("WORKFORCE_CONFIGURATION_PIN_MISMATCH")
+        plan = gug363.build_workforce_materialization_plan(intent=frozen_intent, expected_intent_digest=expected_intent_digest,
+            package_manifest=manifest, package_archive=package_archive, signed_archive=signed_archive,
+            signing_readback=signing_readback, expected_signing_readback_digest=expected_signing_readback_digest,
+            repo_root=repo_root, evaluated_at=evaluated_at)
+        if plan["effect_window"] is None or plan["ledger_kms_key"] is None:
+            _fail("WORKFORCE_CONFIGURATION_EFFECT_AND_KEY_REQUIRED")
+        _wf_object(evidence, {"record_type", "schema_version", "observed_at", "authority_account_id", "region",
+                              "broker_role", "permission_set_roles", "policies", "ledger", "function", "api"})
+        if (evidence["record_type"] != WORKFORCE_CONFIGURATION_READBACK_TYPE or type(evidence["schema_version"]) is not int
+                or evidence["schema_version"] != 1 or evidence["authority_account_id"] != AUTHORITY_ACCOUNT_ID or evidence["region"] != REGION):
+            _fail("WORKFORCE_CONFIGURATION_READBACK_INVALID")
+        observed = WorkforceRetirementConfig.parse_time(evidence["observed_at"])
+        if not timedelta(0) <= evaluated_at - observed <= timedelta(minutes=5):
+            _fail("WORKFORCE_CONFIGURATION_READBACK_STALE")
+        compiled = plan["compiled"]
+        inert = _workforce_inert_preparation(frozen_intent, manifest)
+        broker_id = _wf_role_snapshot(evidence["broker_role"], arn=_role_arn(BROKER_ROLE_NAME), role_id=None,
+            trust_digest=compiled["role"]["trust_document_digest"], boundary=inert["policy"]["arn"],
+            attached=[{"PolicyName": PROOF_BOUNDARY_NAME, "PolicyArn": inert["policy"]["arn"]}], inline_digest=None)
+        _wf_object(evidence["permission_set_roles"], {"classify", "retire"})
+        for operation, role in plan["roles"].items():
+            _wf_role_snapshot(evidence["permission_set_roles"][operation], arn=role["role_arn"], role_id=role["role_id"],
+                trust_digest=role["trust_sha256"], boundary=None, attached=[], inline_digest=role["policy_sha256"])
+        _wf_object(evidence["policies"], {"inert", "active"})
+        for kind, contract, entity in (("inert", inert["policy"], broker_id), ("active", compiled["policy"], None)):
+            _wf_policy_snapshot(evidence["policies"][kind], arn=contract["arn"], digest=contract["document_digest"], role_id=entity)
+        document = {"schema_version": "2", "authorization_mode": gug363.WORKFORCE_MODE,
+            "authority_account_id": AUTHORITY_ACCOUNT_ID, "region": REGION, **plan["target"],
+            "expected_code_sha256": plan["artifact_signing_contract"]["signed_destination"]["lambda_code_sha256"],
+            "expected_broker_policy_sha256": compiled["policy"]["document_digest"], "broker_role_id": broker_id,
+            "broker_trust_policy_sha256": compiled["role"]["trust_document_digest"],
+            "broker_runtime_version_arn": compiled["function"]["runtime_management"]["RuntimeVersionArn"],
+            "code_signing_config_arn": plan["artifact_signing_contract"]["code_signing_config"]["arn"],
+            "signing_profile_version_arn": plan["artifact_signing_contract"]["signer"]["profile_version_arn"],
+            "api_id": plan["api_id"], "owner_operator_id": plan["owner"]["operator_id"],
+            "owner_subject_digest": plan["owner"]["subject_digest"], **plan["effect_window"],
+            "roles": plan["roles"], "management_reader_role_arn": plan["reader"]["role_arn"]}
+        config = WorkforceRetirementConfig(document, canonical_digest(document))
+        config.require_time(evaluated_at)
+        try:
+            if canonical_digest(_wf_object(evidence["ledger"]).get("describe_key")) != plan["ledger_kms_key"]["readback_digest"]:
+                _fail("WORKFORCE_LEDGER_KEY_READBACK_PIN_MISMATCH")
+            _wf_certify_ledger(evidence["ledger"], config=config, key_arn=plan["ledger_kms_key"]["arn"])
+        except ServiceRoleMaterializationError as exc:
+            if exc.code in {"WORKFORCE_LEDGER_SLOT_OCCUPIED", "WORKFORCE_LEDGER_KEY_READBACK_PIN_MISMATCH"}:
+                raise
+            _fail("WORKFORCE_LEDGER_NOT_CERTIFIED")
+        except Exception:
+            _fail("WORKFORCE_LEDGER_NOT_CERTIFIED")
+        api = _wf_object(evidence["api"], {"get_api", "get_routes", "get_integrations", "get_stages", "get_deployments"})
+        actual = _wf_object(api["get_api"])
+        if (actual.get("ApiId") != plan["api_id"] or actual.get("ProtocolType") != "HTTP"
+                or actual.get("RouteSelectionExpression") != "$request.method $request.path"
+                or actual.get("DisableExecuteApiEndpoint") is not False
+                or any(_wf_complete(api[operation], "Items") != [] for operation in ("get_routes", "get_integrations", "get_stages", "get_deployments"))):
+            _fail("WORKFORCE_CONFIGURATION_API_CHANGED")
+        revision = _wf_function_snapshot(evidence["function"], plan=plan)
+        environment = config.runtime_environment()
+        env_size = sum(len(key.encode("utf-8")) + len(value.encode("utf-8")) for key, value in environment.items())
+        if env_size > 4096:
+            _fail("WORKFORCE_CONFIGURATION_ENV_TOO_LARGE")
+        active_arn, inert_arn = compiled["policy"]["arn"], inert["policy"]["arn"]
+        transition = [
+            {"action": "iam:AttachRolePolicy", "request": {"RoleName": BROKER_ROLE_NAME, "PolicyArn": active_arn}, "boundary_must_remain": inert_arn},
+            {"action": "iam:DetachRolePolicy", "request": {"RoleName": BROKER_ROLE_NAME, "PolicyArn": inert_arn}, "boundary_must_remain": inert_arn},
+            {"action": "READBACK_ONLY", "expected_role_id": broker_id, "attached_policy_arns": [active_arn], "permissions_boundary_arn": inert_arn, "inline_policy_names": [], "active_policy_version": "v1"},
+            {"action": "iam:PutRolePermissionsBoundary", "request": {"RoleName": BROKER_ROLE_NAME, "PermissionsBoundary": active_arn}},
+            {"action": "READBACK_ONLY", "expected_role_id": broker_id, "attached_policy_arns": [active_arn], "permissions_boundary_arn": active_arn, "inline_policy_names": [], "active_policy_version": "v1"},
+        ]
+        result = {"record_type": WORKFORCE_CONFIGURATION_PLAN_TYPE, "schema_version": 1,
+            "status": "PREPARED_CONFIGURATION_NOT_AUTHORIZED_NOT_INSTALLED", "deployment_authorized": False,
+            "aws_mutation_attempted": False, "independent_approval_present": False, "evaluated_at": plan["evaluated_at"],
+            "preparation_plan": plan, "preparation_plan_digest": plan["plan_digest"],
+            "configuration_readback_digest": expected_configuration_readback_digest,
+            "pin_semantics": plan["pin_semantics"], "source_ci_status": plan["source_ci_status"], "signature_status": plan["signature_status"],
+            "configuration": document, "configuration_digest": config.expected_digest,
+            "environment": environment, "environment_size_bytes": env_size,
+            "configure_request": {"FunctionName": BROKER_FUNCTION_NAME, "RevisionId": revision, "Environment": {"Variables": environment}},
+            "configure_gate": "PENDING_CONNECTED_ADMISSION_AND_REVIEWED_INSTALLER_UNDER_INERT_BOUNDARY",
+            "post_configuration_readback_required": {"function_arn": _function_arn(), "expected_code_sha256": config.expected_code_sha256, "environment": environment, "same_role_id": broker_id},
+            "publish_request": None, "numeric_version_arn": None, "post_publication_binding": None,
+            "activation_transition": {"status": "PENDING_NUMERIC_VERSION_POLICY_AND_DEPLOYED_STAGE_READBACK", "operations": transition,
+                "require_before_each_effect": ["LIVE_INSTALLER_AUTHORITY", "FRESH_CAPTURE_AND_SAME_ROLE_ID", "SAME_LEDGER_AND_UNCONSUMED_KEY", "ACTIVE_EFFECT_WINDOW", "EXACT_POLICY_V1_AND_NO_EXTRA_ENTITIES"],
+                "rollback_first_request": {"RoleName": BROKER_ROLE_NAME, "PermissionsBoundary": inert_arn}},
+            "ledger": compiled["ledger"], "readback_semantics": "CAPTURED_PREDICATES_CHECKED_NOT_AUTHENTICATED_PROVIDER_EVIDENCE",
+            "permission_set_policy_status": "CAPTURED_ONLY_REBUILD_CONFIG_AND_PINS_AFTER_REVIEWED_OPERATION_GRANTS",
+            "pending": plan["pending"], "retry_permitted": False}
+        result["plan_digest"] = canonical_digest(result)
+        return result
+    except (ServiceRoleMaterializationError, gug363.RetirementEntrypointMaterializationError):
+        raise
+    except Exception:
+        _fail("WORKFORCE_CONFIGURATION_REJECTED")
 
 
 def compile_service_role_materialization_plan(

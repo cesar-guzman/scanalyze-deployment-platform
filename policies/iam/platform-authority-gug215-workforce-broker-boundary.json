@@ -1,0 +1,284 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyMissingOrForeignFunctionOrigin",
+      "Effect": "Deny",
+      "Resource": "*",
+      "Condition": {
+        "ArnNotEqualsIfExists": {
+          "lambda:SourceFunctionArn": "${broker_function_arn}"
+        }
+      },
+      "NotAction": "kms:Decrypt"
+    },
+    {
+      "Sid": "DenyDecryptOtherKey",
+      "Effect": "Deny",
+      "Action": "kms:Decrypt",
+      "NotResource": "${ledger_kms_key_arn}"
+    },
+    {
+      "Sid": "DenyDecryptMissingOrForeignService",
+      "Effect": "Deny",
+      "Action": "kms:Decrypt",
+      "Resource": "*",
+      "Condition": {
+        "StringNotEqualsIfExists": {
+          "kms:ViaService": "dynamodb.us-east-1.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "DenyDecryptMissingOrForeignAccount",
+      "Effect": "Deny",
+      "Action": "kms:Decrypt",
+      "Resource": "*",
+      "Condition": {
+        "StringNotEqualsIfExists": {
+          "kms:CallerAccount": "042360977644"
+        }
+      }
+    },
+    {
+      "Sid": "DenyDecryptWithoutForwardAccess",
+      "Effect": "Deny",
+      "Action": "kms:Decrypt",
+      "Resource": "*",
+      "Condition": {
+        "BoolIfExists": {
+          "aws:ViaAWSService": "false"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactRetainedStack",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:ListChangeSets",
+        "cloudformation:ListStackResources"
+      ],
+      "Resource": "${stack_arn}"
+    },
+    {
+      "Sid": "DescribeExactChangeSet",
+      "Effect": "Allow",
+      "Action": "cloudformation:DescribeChangeSet",
+      "Resource": "${stack_arn}",
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:ChangeSetName": "${change_set_name}"
+        }
+      }
+    },
+    {
+      "Sid": "RetireExactChangeSetWithinEffectWindow",
+      "Effect": "Allow",
+      "Action": "cloudformation:DeleteChangeSet",
+      "Resource": "${stack_arn}",
+      "Condition": {
+        "StringEquals": {
+          "cloudformation:ChangeSetName": "${change_set_name}"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${effect_start}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${effect_end}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadAccountPabAndCallerIdentity",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetAccountPublicAccessBlock",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadExactLedgerKmsKey",
+      "Effect": "Allow",
+      "Action": "kms:DescribeKey",
+      "Resource": "${ledger_kms_key_arn}"
+    },
+    {
+      "Sid": "DecryptExactLedgerKeyThroughDynamoDb",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "${ledger_kms_key_arn}",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "dynamodb.us-east-1.amazonaws.com",
+          "kms:CallerAccount": "042360977644"
+        },
+        "Bool": {
+          "aws:ViaAWSService": "true"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactLedgerControls",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:GetResourcePolicy",
+        "dynamodb:ListTagsOfResource"
+      ],
+      "Resource": "${ledger_arn}"
+    },
+    {
+      "Sid": "UseSameRetirementLedgerKey",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem"
+      ],
+      "Resource": "${ledger_arn}",
+      "Condition": {
+        "ForAllValues:StringEquals": {
+          "dynamodb:LeadingKeys": [
+            "${retirement_id}"
+          ]
+        },
+        "Null": {
+          "dynamodb:LeadingKeys": "false"
+        }
+      }
+    },
+    {
+      "Sid": "AssumeExactManagementReader",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "${reader_arn}",
+      "Condition": {
+        "StringEquals": {
+          "sts:RoleSessionName": "gug215-workforce-reader"
+        },
+        "DateGreaterThanEquals": {
+          "aws:CurrentTime": "${reader_start}"
+        },
+        "DateLessThan": {
+          "aws:CurrentTime": "${reader_end}"
+        }
+      }
+    },
+    {
+      "Sid": "ReadExactRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies"
+      ],
+      "Resource": [
+        "${broker_role_arn}",
+        "${class_role_arn}",
+        "${approve_role_arn}"
+      ]
+    },
+    {
+      "Sid": "ReadExactBrokerManagedPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListEntitiesForPolicy",
+        "iam:ListPolicyVersions"
+      ],
+      "Resource": "${boundary_arn}"
+    },
+    {
+      "Sid": "ReadBrokerNumericConfiguration",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetFunctionCodeSigningConfig",
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetPolicy",
+        "lambda:GetRuntimeManagementConfig"
+      ],
+      "Resource": [
+        "${broker_function_arn}",
+        "${broker_function_arn}:*"
+      ]
+    },
+    {
+      "Sid": "ReadExactCodeSigningConfig",
+      "Effect": "Allow",
+      "Action": "lambda:GetCodeSigningConfig",
+      "Resource": "${code_signing_config_arn}"
+    },
+    {
+      "Sid": "ReadExactDeployedApi",
+      "Effect": "Allow",
+      "Action": "apigateway:GET",
+      "Resource": [
+        "${api_arn}",
+        "${api_arn}/routes",
+        "${api_arn}/integrations",
+        "${api_arn}/stages",
+        "${api_arn}/exports/OAS30"
+      ]
+    },
+    {
+      "Sid": "WriteExactBrokerLogStreams",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "${log_stream_arn}"
+    },
+    {
+      "Sid": "DenyEveryOtherAction",
+      "Effect": "Deny",
+      "NotAction": [
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:ListChangeSets",
+        "cloudformation:ListStackResources",
+        "cloudformation:DescribeChangeSet",
+        "cloudformation:DeleteChangeSet",
+        "s3:GetAccountPublicAccessBlock",
+        "kms:DescribeKey",
+        "sts:GetCallerIdentity",
+        "dynamodb:DescribeContinuousBackups",
+        "dynamodb:DescribeTable",
+        "dynamodb:DescribeTimeToLive",
+        "dynamodb:GetResourcePolicy",
+        "dynamodb:ListTagsOfResource",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "sts:AssumeRole",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:ListRolePolicies",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListEntitiesForPolicy",
+        "iam:ListPolicyVersions",
+        "lambda:GetFunctionCodeSigningConfig",
+        "lambda:GetFunctionConcurrency",
+        "lambda:GetFunctionConfiguration",
+        "lambda:GetPolicy",
+        "lambda:GetRuntimeManagementConfig",
+        "lambda:GetCodeSigningConfig",
+        "apigateway:GET",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "kms:Decrypt"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

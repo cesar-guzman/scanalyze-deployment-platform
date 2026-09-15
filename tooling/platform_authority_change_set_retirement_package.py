@@ -12,11 +12,20 @@ object is the only object eligible for projection into CloudFormation.
 
 This module performs no AWS, network, upload, signing, deployment, or
 retirement operation.
+
+Workforce v2 is an explicit pre-sign source contract. Its configuration binding
+remains pending: the post-sign consumer must verify the external signature,
+exact versioned S3 object and signed bytes, then validate and independently pin
+WorkforceRetirementConfig with that signed CodeSha256. Neither an unsigned
+digest nor this manifest can substitute for that configuration or evidence of
+CI, exclusive assignment, installation, or authorization to execute. Existing
+consumers remain on v1 unless they explicitly opt into validating v2 source.
 """
 
 from __future__ import annotations
 
 import base64
+import ast
 from dataclasses import dataclass
 from hashlib import sha256
 from io import BytesIO
@@ -34,6 +43,7 @@ ARTIFACT_TYPE = "scanalyze.platform_authority.change_set_retirement_package.v1"
 SCHEMA_VERSION = 1
 WORK_PACKAGE = "GUG-215"
 AUTHORIZATION_MODE = "SINGLE_OPERATOR_NONPROD_EXCEPTION"
+WORKFORCE_AUTHORIZATION_MODE = "WORKFORCE_SINGLE_OWNER_RETIREMENT_V1"
 PRODUCTION_STATUS = "NO-GO"
 ARCHIVE_NAME = "scanalyze-gug215-change-set-retirement-broker.zip"
 MANIFEST_NAME = "scanalyze-gug215-change-set-retirement-broker.manifest.json"
@@ -53,11 +63,51 @@ SOURCE_PATHS = tuple(
         key=lambda item: item.as_posix(),
     )
 )
+# Only workforce v2 carries the deployed-stage verifier. Legacy packages keep
+# their original seven members and do not import this module at module load.
+WORKFORCE_SOURCE_PATHS = tuple(sorted(
+    (*SOURCE_PATHS, Path("tooling/platform_authority_workforce_stage_binding.py")),
+    key=lambda item: item.as_posix(),
+))
 PROVENANCE_PATHS = (
     Path("schemas/platform-authority-change-set-retirement-package-manifest.v1.schema.json"),
     Path("scripts/deployment/platform-authority-change-set-retirement-package.py"),
     Path("tooling/platform_authority_change_set_retirement_package.py"),
 )
+WORKFORCE_PROVENANCE_PATHS = (*PROVENANCE_PATHS,
+    Path("schemas/platform-authority-change-set-retirement-package-manifest.v2.schema.json"),
+    Path("schemas/platform-authority-change-set-retirement-ledger.v4.schema.json"),
+)
+WORKFORCE_RUNTIME_CONTRACT = {
+    "handler": HANDLER,
+    "identity_ingress": "API_GATEWAY_HTTP_API_V2_AWS_IAM",
+    "identity_mode": WORKFORCE_AUTHORIZATION_MODE,
+    "identity_mode_environment_key": "GUG215_IDENTITY_MODE",
+    "configuration_environment_key": "GUG215_WORKFORCE_CONFIG_B64Z",
+    "configuration_digest_environment_key": "GUG215_WORKFORCE_CONFIG_DIGEST",
+    "configuration_validator": "tooling.platform_authority_change_set_retirement_broker.WorkforceRetirementConfig",
+    "configuration_schema_version": "2",
+    "function_version_source": "PROVIDER_LAMBDA_CONTEXT_NUMERIC_ARN",
+    "deployed_stage_verification": "EDITABLE_AND_STAGE_EXPORT_EXACT_NUMERIC_VERSION",
+    "configuration_requires_signed_code_sha256": True,
+    "ledger_schema_version": "4",
+    "operations": ["classify", "retire", "reconcile"],
+    "authority_account_id": "042360977644",
+    "region": "us-east-1",
+    "intended_destination_account_id": "905418363887",
+}
+WORKFORCE_MANIFEST_CONSTANTS = {
+    "artifact_stage": "UNSIGNED_SOURCE_NOT_DEPLOYABLE",
+    "unsigned_digest_semantics": "ARCHIVE_SHA256_AND_LAMBDA_CODE_SHA256_ARE_UNSIGNED_SOURCE_ONLY",
+    "configuration_binding_status": "CONFIGURATION_BINDING_PENDING_SIGNED_ARTIFACT",
+    "signed_artifact_binding": None,
+    "intended_environment": "production",
+    "human_authentication_evidence": "NOT_COLLECTED",
+    "source_and_ci_evidence": "NOT_ATTESTED_BY_MANIFEST",
+    "runtime_configuration_contract": WORKFORCE_RUNTIME_CONTRACT,
+}
+WORKFORCE_MAX_SOURCE_BYTES = 2 * 1024 * 1024
+WORKFORCE_MAX_ARCHIVE_BYTES = 16 * 1024 * 1024
 
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -119,36 +169,83 @@ def _zip_entry(path: Path, payload: bytes) -> tuple[ZipInfo, bytes]:
     return info, payload
 
 
+def _workforce_mode(authorization_mode: str) -> bool:
+    if authorization_mode not in (AUTHORIZATION_MODE, WORKFORCE_AUTHORIZATION_MODE):
+        raise RetirementPackageError("PACKAGE_AUTHORIZATION_MODE_INVALID")
+    return authorization_mode == WORKFORCE_AUTHORIZATION_MODE
+
+
+def _require_workforce_source_support(sources: Mapping[Path, bytes]) -> None:
+    """Syntactic compatibility only; HEAD/blob custody and review remain required."""
+    try:
+        broker = ast.parse(sources[Path("tooling/platform_authority_change_set_retirement_broker.py")].decode("utf-8"))
+        runtime = ast.parse(sources[Path("tooling/platform_authority_identity_context_pep_runtime.py")].decode("utf-8"))
+        stage = ast.parse(sources[Path("tooling/platform_authority_workforce_stage_binding.py")].decode("utf-8"))
+        modes = [node.value.value for node in broker.body if isinstance(node, ast.Assign)
+                 and any(isinstance(target, ast.Name) and target.id == "WORKFORCE_RETIREMENT_MODE" for target in node.targets)
+                 and isinstance(node.value, ast.Constant)]
+        classes = {node.name: node for node in broker.body if isinstance(node, ast.ClassDef)}
+        functions = {node.name: node for node in runtime.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        config = classes.get("WorkforceRetirementConfig")
+        if (modes != [WORKFORCE_AUTHORIZATION_MODE] or "WorkforceRetirementBroker" not in classes
+                or config is None or "handler" not in functions or "_workforce_handler" not in functions
+                or "workforce_config_from_environment" not in functions):
+            raise ValueError
+        environments = [node for node in config.body if isinstance(node, ast.FunctionDef) and node.name == "runtime_environment"]
+        binders = [node for node in config.body if isinstance(node, ast.FunctionDef) and node.name == "bind_lambda_context"]
+        stage_verifiers = [node for node in stage.body if isinstance(node, ast.FunctionDef) and node.name == "verify_workforce_deployed_stage"]
+        if len(environments) != 1 or len(binders) != 1 or len(stage_verifiers) != 1:
+            raise ValueError
+        keys = {node.value for node in ast.walk(environments[0]) if isinstance(node, ast.Constant)
+                and type(node.value) is str and node.value.startswith("GUG215_")}
+        if keys != {"GUG215_IDENTITY_MODE", "GUG215_WORKFORCE_CONFIG_B64Z", "GUG215_WORKFORCE_CONFIG_DIGEST"}:
+            raise ValueError
+    except Exception:
+        raise RetirementPackageError("WORKFORCE_RUNTIME_SOURCE_INCOMPATIBLE") from None
+
+
 def build_retirement_package(
     *,
     source_root: Path,
     source_commit: str,
     broker_runtime_version_arn: str,
-    broker_version_binding_sha256: str,
+    broker_version_binding_sha256: str | None = None,
     committed_sources: Mapping[Path, bytes] | None = None,
+    authorization_mode: str = AUTHORIZATION_MODE,
 ) -> BuiltRetirementPackage:
     """Return deterministic ZIP bytes plus the strict public manifest."""
 
+    workforce = _workforce_mode(authorization_mode)
+    source_paths = WORKFORCE_SOURCE_PATHS if workforce else SOURCE_PATHS
     if _COMMIT.fullmatch(source_commit) is None:
         raise RetirementPackageError("SOURCE_COMMIT_INVALID")
     runtime_digest = runtime_version_arn_digest(broker_runtime_version_arn)
-    if _DIGEST.fullmatch(broker_version_binding_sha256) is None:
+    if workforce and broker_version_binding_sha256 is not None:
+        raise RetirementPackageError("WORKFORCE_PRE_SIGN_BINDING_FORBIDDEN")
+    if workforce and not re.fullmatch(r"arn:aws:lambda:us-east-1::runtime:[a-f0-9]{64}", broker_runtime_version_arn):
+        raise RetirementPackageError("WORKFORCE_RUNTIME_REGION_INVALID")
+    if not workforce and (not isinstance(broker_version_binding_sha256, str) or _DIGEST.fullmatch(broker_version_binding_sha256) is None):
         raise RetirementPackageError("BROKER_VERSION_BINDING_INVALID")
     if committed_sources is None:
-        sources = {path: _read_source(source_root, path) for path in SOURCE_PATHS}
+        sources = {path: _read_source(source_root, path) for path in source_paths}
     else:
-        if set(committed_sources) != set(SOURCE_PATHS):
+        if set(committed_sources) != set(source_paths):
             raise RetirementPackageError("COMMITTED_SOURCE_SET_INVALID")
-        sources = {path: bytes(committed_sources[path]) for path in SOURCE_PATHS}
+        sources = {path: bytes(committed_sources[path]) for path in source_paths}
         if any(
             not payload and path != Path("tooling/__init__.py")
             for path, payload in sources.items()
         ):
             raise RetirementPackageError("PACKAGE_SOURCE_EMPTY")
 
+    if workforce:
+        if any(len(payload) > WORKFORCE_MAX_SOURCE_BYTES for payload in sources.values()):
+            raise RetirementPackageError("WORKFORCE_PACKAGE_SIZE_EXCEEDED")
+        _require_workforce_source_support(sources)
+
     buffer = BytesIO()
     with ZipFile(buffer, mode="w", compression=ZIP_STORED, strict_timestamps=True) as archive:
-        for path in SOURCE_PATHS:
+        for path in source_paths:
             info, payload = _zip_entry(path, sources[path])
             archive.writestr(info, payload)
     archive_bytes = buffer.getvalue()
@@ -179,21 +276,33 @@ def build_retirement_package(
                 "sha256": sha256(sources[path]).hexdigest(),
                 "size_bytes": len(sources[path]),
             }
-            for path in SOURCE_PATHS
+            for path in source_paths
         ],
         "deployment_authorized": False,
         "production_status": PRODUCTION_STATUS,
     }
     manifest["manifest_digest"] = canonical_digest(manifest)
-    validate_retirement_package_manifest(manifest, archive=archive_bytes)
+    if workforce:
+        manifest.pop("broker_version_binding_sha256")
+        manifest.update({
+            "artifact_type": "scanalyze.platform_authority.change_set_retirement_package.v2",
+            "schema_version": 2, "authorization_mode": WORKFORCE_AUTHORIZATION_MODE,
+            "broker_runtime_version_arn": broker_runtime_version_arn,
+            **json.loads(canonical_json(WORKFORCE_MANIFEST_CONSTANTS)),
+        })
+        manifest["manifest_digest"] = canonical_digest({key: value for key, value in manifest.items() if key != "manifest_digest"})
+    validate_retirement_package_manifest(manifest, archive=archive_bytes, authorization_mode=authorization_mode)
     return BuiltRetirementPackage(archive=archive_bytes, manifest=manifest)
 
 
 def validate_retirement_package_manifest(
-    manifest: Mapping[str, Any], *, archive: bytes | None = None
+    manifest: Mapping[str, Any], *, archive: bytes | None = None,
+    authorization_mode: str = AUTHORIZATION_MODE,
 ) -> None:
     """Validate manifest semantics and, when supplied, exact archive bytes."""
 
+    workforce = _workforce_mode(authorization_mode)
+    source_paths = WORKFORCE_SOURCE_PATHS if workforce else SOURCE_PATHS
     required = {
         "artifact_type",
         "schema_version",
@@ -219,6 +328,9 @@ def validate_retirement_package_manifest(
         "production_status",
         "manifest_digest",
     }
+    if workforce:
+        required.remove("broker_version_binding_sha256")
+        required.update({"broker_runtime_version_arn", *WORKFORCE_MANIFEST_CONSTANTS})
     if set(manifest) != required:
         raise RetirementPackageError("PACKAGE_MANIFEST_FIELDS_INVALID")
     constants = {
@@ -238,7 +350,12 @@ def validate_retirement_package_manifest(
         "deployment_authorized": False,
         "production_status": PRODUCTION_STATUS,
     }
-    if any(manifest.get(key) != value for key, value in constants.items()):
+    if workforce:
+        constants.update({"artifact_type": "scanalyze.platform_authority.change_set_retirement_package.v2",
+            "schema_version": 2, "authorization_mode": WORKFORCE_AUTHORIZATION_MODE,
+            **WORKFORCE_MANIFEST_CONSTANTS})
+    if any((canonical_json(manifest.get(key)) != canonical_json(value) if workforce else manifest.get(key) != value)
+           for key, value in constants.items()):
         raise RetirementPackageError("PACKAGE_MANIFEST_SCOPE_INVALID")
     if _COMMIT.fullmatch(str(manifest.get("source_commit"))) is None:
         raise RetirementPackageError("PACKAGE_MANIFEST_SOURCE_INVALID")
@@ -257,14 +374,23 @@ def validate_retirement_package_manifest(
         or manifest["archive_size_bytes"] <= 0
         or _DIGEST.fullmatch(str(manifest.get("broker_runtime_version_arn_digest")))
         is None
-        or _DIGEST.fullmatch(str(manifest.get("broker_version_binding_sha256")))
-        is None
+        or (not workforce and _DIGEST.fullmatch(str(manifest.get("broker_version_binding_sha256"))) is None)
     ):
         raise RetirementPackageError("PACKAGE_MANIFEST_BINDING_INVALID")
+    if workforce:
+        runtime_arn = manifest.get("broker_runtime_version_arn")
+        if (type(manifest.get("source_commit")) is not str or type(runtime_arn) is not str
+                or re.fullmatch(r"arn:aws:lambda:us-east-1::runtime:[a-f0-9]{64}", runtime_arn) is None
+                or runtime_version_arn_digest(runtime_arn) != manifest["broker_runtime_version_arn_digest"]
+                or type(manifest["schema_version"]) is not int or type(manifest["archive_size_bytes"]) is not int
+                or any(type(manifest[key]) is not bool for key in ("production", "deployment_authorized", "independent_approval_present"))):
+            raise RetirementPackageError("PACKAGE_MANIFEST_BINDING_INVALID")
+        if manifest["archive_size_bytes"] > WORKFORCE_MAX_ARCHIVE_BYTES:
+            raise RetirementPackageError("WORKFORCE_PACKAGE_SIZE_EXCEEDED")
     entries = manifest.get("entries")
-    if not isinstance(entries, list) or len(entries) != len(SOURCE_PATHS):
+    if not isinstance(entries, list) or len(entries) != len(source_paths):
         raise RetirementPackageError("PACKAGE_MANIFEST_ENTRIES_INVALID")
-    expected_paths = [path.as_posix() for path in SOURCE_PATHS]
+    expected_paths = [path.as_posix() for path in source_paths]
     observed_paths: list[str] = []
     for entry in entries:
         if not isinstance(entry, Mapping) or set(entry) != {"path", "sha256", "size_bytes"}:
@@ -274,9 +400,12 @@ def validate_retirement_package_manifest(
         if (
             not isinstance(path, str)
             or _HEX_DIGEST.fullmatch(str(entry.get("sha256"))) is None
+            or (workforce and type(entry.get("sha256")) is not str)
             or not isinstance(size, int)
+            or (workforce and type(size) is not int)
             or size < 0
             or (size == 0 and path != "tooling/__init__.py")
+            or (workforce and size > WORKFORCE_MAX_SOURCE_BYTES)
         ):
             raise RetirementPackageError("PACKAGE_MANIFEST_ENTRIES_INVALID")
         observed_paths.append(path)
@@ -298,6 +427,7 @@ def validate_retirement_package_manifest(
         with ZipFile(BytesIO(archive)) as package:
             if package.namelist() != expected_paths:
                 raise RetirementPackageError("PACKAGE_ARCHIVE_MEMBERS_INVALID")
+            sources = {}
             for item, entry in zip(package.infolist(), entries, strict=True):
                 if (
                     item.date_time != FIXED_ZIP_TIMESTAMP
@@ -307,21 +437,40 @@ def validate_retirement_package_manifest(
                     or (item.external_attr >> 16) & 0o777 != 0o644
                 ):
                     raise RetirementPackageError("PACKAGE_ARCHIVE_METADATA_INVALID")
+                if workforce and (item.file_size != entry["size_bytes"]
+                                  or item.compress_size != item.file_size or item.file_size > WORKFORCE_MAX_SOURCE_BYTES
+                                  or item.flag_bits != 0 or item.create_system != 3
+                                  or (item.external_attr >> 16) != 0o100644 or package.comment != b""):
+                    raise RetirementPackageError("PACKAGE_ARCHIVE_METADATA_INVALID")
                 payload = package.read(item.filename)
                 if (
                     sha256(payload).hexdigest() != entry["sha256"]
                     or len(payload) != entry["size_bytes"]
                 ):
                     raise RetirementPackageError("PACKAGE_ARCHIVE_MEMBER_DIGEST_MISMATCH")
+                sources[Path(item.filename)] = payload
+            if workforce:
+                _require_workforce_source_support(sources)
+                canonical = BytesIO()
+                with ZipFile(canonical, mode="w", compression=ZIP_STORED, strict_timestamps=True) as rebuilt:
+                    for path in source_paths:
+                        info, payload = _zip_entry(path, sources[path])
+                        rebuilt.writestr(info, payload)
+                # ZipFile accepts prefixes, trailing bytes and adjusted offsets.
+                # None belongs to the exact source closure promised by v2.
+                if canonical.getvalue() != archive:
+                    raise RetirementPackageError("PACKAGE_ARCHIVE_NOT_CANONICAL")
     except (BadZipFile, OSError) as exc:
         raise RetirementPackageError("PACKAGE_ARCHIVE_INVALID") from exc
 
 
 def verify_clean_source_commit(
-    *, source_root: Path, source_commit: str
+    *, source_root: Path, source_commit: str, authorization_mode: str = AUTHORIZATION_MODE,
 ) -> Mapping[Path, bytes]:
     """Return exact Git-object bytes after proving clean HEAD provenance."""
 
+    workforce = _workforce_mode(authorization_mode)
+    source_paths = WORKFORCE_SOURCE_PATHS if workforce else SOURCE_PATHS
     if _COMMIT.fullmatch(source_commit) is None:
         raise RetirementPackageError("SOURCE_COMMIT_INVALID")
     root = source_root.resolve(strict=True)
@@ -350,7 +499,8 @@ def verify_clean_source_commit(
         raise RetirementPackageError("SOURCE_TREE_DIRTY")
 
     committed_sources: dict[Path, bytes] = {}
-    for relative in (*SOURCE_PATHS, *PROVENANCE_PATHS):
+    provenance = WORKFORCE_PROVENANCE_PATHS if workforce else PROVENANCE_PATHS
+    for relative in (*source_paths, *provenance):
         try:
             committed = subprocess.run(
                 ["git", "show", f"{source_commit}:{relative.as_posix()}"],
@@ -363,7 +513,7 @@ def verify_clean_source_commit(
             raise RetirementPackageError("PACKAGE_SOURCE_NOT_IN_COMMIT") from exc
         if committed != _read_source(root, relative):
             raise RetirementPackageError("PACKAGE_SOURCE_COMMIT_DRIFT")
-        if relative in SOURCE_PATHS:
+        if relative in source_paths:
             committed_sources[relative] = committed
     return committed_sources
 
@@ -390,13 +540,14 @@ def write_retirement_package(
     source_root: Path,
     source_commit: str,
     broker_runtime_version_arn: str,
-    broker_version_binding_sha256: str,
+    broker_version_binding_sha256: str | None = None,
     output_directory: Path,
+    authorization_mode: str = AUTHORIZATION_MODE,
 ) -> tuple[Path, Path, Mapping[str, Any]]:
     """Create one owner-only package directory outside the source tree."""
 
     committed_sources = verify_clean_source_commit(
-        source_root=source_root, source_commit=source_commit
+        source_root=source_root, source_commit=source_commit, authorization_mode=authorization_mode,
     )
     built = build_retirement_package(
         source_root=source_root,
@@ -404,6 +555,7 @@ def write_retirement_package(
         broker_runtime_version_arn=broker_runtime_version_arn,
         broker_version_binding_sha256=broker_version_binding_sha256,
         committed_sources=committed_sources,
+        authorization_mode=authorization_mode,
     )
     root = source_root.resolve(strict=True)
     requested = output_directory.resolve(strict=False)
