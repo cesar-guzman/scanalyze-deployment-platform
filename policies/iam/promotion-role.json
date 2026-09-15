@@ -15,7 +15,15 @@
       "Sid": "PublishImages",
       "Effect": "Allow",
       "Action": ["ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:CompleteLayerUpload", "ecr:GetDownloadUrlForLayer", "ecr:InitiateLayerUpload", "ecr:PutImage", "ecr:UploadLayerPart"],
-      "Resource": "arn:${aws_partition}:ecr:${region}:${account_id}:repository/scanalyze/*",
+      "Resource": [
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-ingest-api",
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-ocr-worker",
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-classifier-worker",
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-bank-worker",
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-personal-worker",
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-gov-worker",
+        "arn:${aws_partition}:ecr:${region}:${account_id}:repository/${sanitized_deployment_id}/scanalyze-postprocess-worker"
+      ],
       "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "promote", "aws:PrincipalTag/layer": "artifact-publication"}}
     },
     {
@@ -28,12 +36,19 @@
     {
       "Sid": "PublishFrontendRelease",
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:ListBucket", "s3:PutObject"],
-      "Resource": [
-        "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend",
-        "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend/releases/${deployment_id}/*"
-      ],
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend/releases/${deployment_id}/*",
       "Condition": {"StringEquals": {"aws:PrincipalTag/operation": "promote", "aws:PrincipalTag/layer": "artifact-publication"}}
+    },
+    {
+      "Sid": "ListFrontendRelease",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:${aws_partition}:s3:::scanalyze-${account_id}-frontend",
+      "Condition": {
+        "StringEquals": {"aws:PrincipalTag/operation": "promote", "aws:PrincipalTag/layer": "artifact-publication"},
+        "StringLike": {"s3:prefix": "releases/${deployment_id}/*"}
+      }
     },
     {
       "Sid": "InvalidateExactDistribution",
