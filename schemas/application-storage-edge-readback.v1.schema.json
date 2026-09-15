@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/application-storage-edge-readback.v1.schema.json",
+  "title": "Application storage edge-readback v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "status",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "aws_partition",
+    "observed_at",
+    "distribution",
+    "origin_access_control",
+    "readback_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "record_type": {
+      "type": "string",
+      "const": "application_storage_edge_readback"
+    },
+    "status": {
+      "type": "string",
+      "const": "CLOSED"
+    },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "account_id": {
+      "type": "string",
+      "pattern": "^(?!000000000000$)[0-9]{12}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "environment": {
+      "enum": [
+        "sandbox",
+        "dev",
+        "staging",
+        "production"
+      ]
+    },
+    "aws_partition": {
+      "enum": [
+        "aws",
+        "aws-us-gov",
+        "aws-cn"
+      ]
+    },
+    "observed_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "distribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "arn",
+        "domain_name",
+        "status",
+        "enabled",
+        "etag",
+        "tags",
+        "origins",
+        "default_target_origin_id",
+        "config_path_pattern",
+        "config_target_origin_id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Z0-9]{1,64}$"
+        },
+        "arn": {
+          "type": "string",
+          "minLength": 1
+        },
+        "domain_name": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+\\.cloudfront\\.net$"
+        },
+        "status": {
+          "type": "string",
+          "const": "Deployed"
+        },
+        "enabled": {
+          "type": "boolean",
+          "const": true
+        },
+        "etag": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9]{1,128}$"
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "deployment_id",
+            "managed_by",
+            "layer"
+          ],
+          "properties": {
+            "deployment_id": {
+              "type": "string",
+              "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+            },
+            "managed_by": {
+              "type": "string",
+              "const": "terraform"
+            },
+            "layer": {
+              "type": "string",
+              "const": "edge"
+            }
+          }
+        },
+        "origins": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "s3-frontend",
+            "s3-runtime-config"
+          ],
+          "properties": {
+            "s3-frontend": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "domain_name",
+                "origin_path",
+                "origin_access_control_id",
+                "origin_access_identity"
+              ],
+              "properties": {
+                "domain_name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "origin_path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "origin_access_control_id": {
+                  "type": "string",
+                  "pattern": "^[A-Z0-9]{1,64}$"
+                },
+                "origin_access_identity": {
+                  "type": "string",
+                  "const": ""
+                }
+              }
+            },
+            "s3-runtime-config": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "domain_name",
+                "origin_path",
+                "origin_access_control_id",
+                "origin_access_identity"
+              ],
+              "properties": {
+                "domain_name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "origin_path": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "origin_access_control_id": {
+                  "type": "string",
+                  "pattern": "^[A-Z0-9]{1,64}$"
+                },
+                "origin_access_identity": {
+                  "type": "string",
+                  "const": ""
+                }
+              }
+            }
+          }
+        },
+        "default_target_origin_id": {
+          "type": "string",
+          "const": "s3-frontend"
+        },
+        "config_path_pattern": {
+          "type": "string",
+          "const": "/config.json"
+        },
+        "config_target_origin_id": {
+          "type": "string",
+          "const": "s3-runtime-config"
+        }
+      }
+    },
+    "origin_access_control": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "origin_type",
+        "signing_behavior",
+        "signing_protocol"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Z0-9]{1,64}$"
+        },
+        "origin_type": {
+          "type": "string",
+          "const": "s3"
+        },
+        "signing_behavior": {
+          "type": "string",
+          "const": "always"
+        },
+        "signing_protocol": {
+          "type": "string",
+          "const": "sigv4"
+        }
+      }
+    },
+    "readback_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

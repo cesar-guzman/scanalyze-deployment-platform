@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/m2m-registry-projection.v1.schema.json",
+  "title": "Scanalyze M2M Registry Projection v1",
+  "description": "Reduced projection of identity-contract/v2 for the identity-control-plane root. Validates deployment tuple, action scope sets, and M2M bindings. Closed schema.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "contract_id",
+    "customer_id",
+    "deployment_id",
+    "contract_digest",
+    "action_scope_sets",
+    "m2m_bindings"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "m2m-registry-projection.v1" },
+    "contract_id": { "const": "identity-contract/v2" },
+    "customer_id": { "$ref": "#/$defs/customer_id" },
+    "deployment_id": { "$ref": "#/$defs/deployment_id" },
+    "contract_digest": { "$ref": "#/$defs/sha256" },
+    "action_scope_sets": {
+      "type": "object",
+      "required": ["read", "write", "admin"],
+      "additionalProperties": false,
+      "properties": {
+        "read": { "$ref": "#/$defs/scope_set" },
+        "write": { "$ref": "#/$defs/scope_set" },
+        "admin": { "$ref": "#/$defs/scope_set" }
+      }
+    },
+    "m2m_bindings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": ["client_id", "customer_id", "deployment_id", "required_scopes"],
+        "additionalProperties": false,
+        "properties": {
+          "client_id": { "$ref": "#/$defs/client_id" },
+          "customer_id": { "$ref": "#/$defs/customer_id" },
+          "deployment_id": { "$ref": "#/$defs/deployment_id" },
+          "required_scopes": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/scope" },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "client_id": { "type": "string", "pattern": "^[A-Za-z0-9]{1,128}$" },
+    "scope": { "type": "string", "pattern": "^\\S{1,256}$" },
+    "scope_set": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/scope" },
+      "minItems": 1,
+      "uniqueItems": true
+    }
+  }
+}

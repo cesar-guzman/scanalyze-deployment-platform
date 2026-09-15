@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/identity-publication-receipt.v1.schema.json",
+  "title": "Identity Publication Receipt v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "signed_release_manifest_digest",
+    "signed_release_manifest_version",
+    "cicd_contract_digest",
+    "destination_bucket",
+    "identity_pre_token_lambda_locator",
+    "identity_control_processor_lambda_locator",
+    "receipt_digest"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "identity-publication-receipt.v1"
+    },
+    "customer_id": {
+      "$ref": "#/$defs/customer_id"
+    },
+    "deployment_id": {
+      "$ref": "#/$defs/deployment_id"
+    },
+    "account_id": {
+      "$ref": "#/$defs/account_id"
+    },
+    "region": {
+      "$ref": "#/$defs/region"
+    },
+    "environment": {
+      "enum": [
+        "dev",
+        "staging",
+        "production"
+      ]
+    },
+    "signed_release_manifest_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "signed_release_manifest_version": {
+      "type": "string",
+      "pattern": "^[0-9]+[.][0-9]+[.][0-9]+(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "cicd_contract_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "destination_bucket": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    },
+    "identity_pre_token_lambda_locator": {
+      "$ref": "#/$defs/s3_locator"
+    },
+    "identity_control_processor_lambda_locator": {
+      "$ref": "#/$defs/s3_locator"
+    },
+    "receipt_digest": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "account_id": {
+      "type": "string",
+      "pattern": "^[0-9]{12}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-gov)?-[a-z]+-[0-9]+$"
+    },
+    "s3_locator": {
+      "type": "object",
+      "required": [
+        "bucket",
+        "key",
+        "object_version",
+        "sha256_b64"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "bucket": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "object_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "not": {
+            "const": "null"
+          }
+        },
+        "sha256_b64": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+        }
+      }
+    }
+  },
+  "description": "Externally reviewed immutable publication binding. The independent expected digest must be protected by the caller; this offline document does not itself observe S3. signed_release_manifest_version is release_version, not schema_version. cicd_contract_digest hashes the complete verified CICD envelope."
+}

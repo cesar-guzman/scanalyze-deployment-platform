@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/deployment-bootstrap-request.v1.schema.json",
+  "title": "Deployment Bootstrap Request v1",
+  "description": "Closed admission request for first-install baseline generation before target resource IDs exist.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "shared_services_account_id",
+    "terminal_version_id",
+    "workload_version_id",
+    "model_selection_digest",
+    "record_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "deployment_bootstrap_request" },
+    "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "environment": { "enum": ["sandbox", "dev", "staging", "production"] },
+    "shared_services_account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "terminal_version_id": { "type": "string", "pattern": "^[A-Za-z0-9._~+/=-]{1,256}$" },
+    "workload_version_id": { "type": "string", "pattern": "^[A-Za-z0-9._~+/=-]{1,256}$" },
+    "model_selection_digest": { "$ref": "#/$defs/digest" },
+    "record_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

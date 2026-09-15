@@ -1,0 +1,472 @@
+{
+  "account_id": "111111111111",
+  "actual_template": {
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Greenfield baseline-owned application keys and private frontend storage; no application or OAC access.",
+    "Metadata": {
+      "Scanalyze": {
+        "RequestDigest": "sha256:1626727b6cc33217a40ae83491151edca91a4af4fb7066200a1f426ab35b486d",
+        "account_id": "111111111111",
+        "aws_partition": "aws",
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "environment": "production",
+        "region": "us-east-1"
+      }
+    },
+    "Outputs": {
+      "ArtifactsKeyArn": {
+        "Value": {
+          "Fn::GetAtt": [
+            "ArtifactsKey",
+            "Arn"
+          ]
+        }
+      },
+      "DataKeyArn": {
+        "Value": {
+          "Fn::GetAtt": [
+            "DataKey",
+            "Arn"
+          ]
+        }
+      },
+      "FrontendBucketName": {
+        "Value": {
+          "Ref": "FrontendBucket"
+        }
+      }
+    },
+    "Resources": {
+      "ArtifactsAlias": {
+        "DeletionPolicy": "Retain",
+        "Properties": {
+          "AliasName": "alias/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cicd-artifacts",
+          "TargetKeyId": {
+            "Ref": "ArtifactsKey"
+          }
+        },
+        "Type": "AWS::KMS::Alias",
+        "UpdateReplacePolicy": "Retain"
+      },
+      "ArtifactsKey": {
+        "DeletionPolicy": "Retain",
+        "Properties": {
+          "Description": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV baseline-owned cicd_artifacts encryption",
+          "EnableKeyRotation": true,
+          "Enabled": true,
+          "KeyPolicy": {
+            "Statement": [
+              {
+                "Action": "kms:*",
+                "Effect": "Allow",
+                "Principal": {
+                  "AWS": "arn:aws:iam::111111111111:root"
+                },
+                "Resource": "*",
+                "Sid": "RootAccountAccess"
+              }
+            ],
+            "Version": "2012-10-17"
+          },
+          "KeySpec": "SYMMETRIC_DEFAULT",
+          "KeyUsage": "ENCRYPT_DECRYPT",
+          "MultiRegion": false,
+          "PendingWindowInDays": 30,
+          "Tags": [
+            {
+              "Key": "customer_id",
+              "Value": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+            },
+            {
+              "Key": "deployment_id",
+              "Value": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+            },
+            {
+              "Key": "environment",
+              "Value": "production"
+            },
+            {
+              "Key": "layer",
+              "Value": "cicd"
+            },
+            {
+              "Key": "managed_by",
+              "Value": "external-account-baseline"
+            },
+            {
+              "Key": "purpose",
+              "Value": "cicd-artifact-encryption"
+            }
+          ]
+        },
+        "Type": "AWS::KMS::Key",
+        "UpdateReplacePolicy": "Retain"
+      },
+      "DataAlias": {
+        "DeletionPolicy": "Retain",
+        "Properties": {
+          "AliasName": "alias/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-data",
+          "TargetKeyId": {
+            "Ref": "DataKey"
+          }
+        },
+        "Type": "AWS::KMS::Alias",
+        "UpdateReplacePolicy": "Retain"
+      },
+      "DataKey": {
+        "DeletionPolicy": "Retain",
+        "Properties": {
+          "Description": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV baseline-owned data encryption",
+          "EnableKeyRotation": true,
+          "Enabled": true,
+          "KeyPolicy": {
+            "Statement": [
+              {
+                "Action": "kms:*",
+                "Effect": "Allow",
+                "Principal": {
+                  "AWS": "arn:aws:iam::111111111111:root"
+                },
+                "Resource": "*",
+                "Sid": "RootAccountAccess"
+              },
+              {
+                "Action": [
+                  "kms:Decrypt",
+                  "kms:GenerateDataKey",
+                  "kms:GenerateDataKeyWithoutPlaintext",
+                  "kms:DescribeKey"
+                ],
+                "Condition": {
+                  "StringEquals": {
+                    "kms:ViaService": [
+                      "s3.us-east-1.amazonaws.com",
+                      "dynamodb.us-east-1.amazonaws.com",
+                      "sqs.us-east-1.amazonaws.com"
+                    ]
+                  }
+                },
+                "Effect": "Allow",
+                "Principal": {
+                  "AWS": "arn:aws:iam::111111111111:root"
+                },
+                "Resource": "*",
+                "Sid": "WorkloadEncryptDecrypt"
+              }
+            ],
+            "Version": "2012-10-17"
+          },
+          "KeySpec": "SYMMETRIC_DEFAULT",
+          "KeyUsage": "ENCRYPT_DECRYPT",
+          "MultiRegion": false,
+          "PendingWindowInDays": 30,
+          "Tags": [
+            {
+              "Key": "customer_id",
+              "Value": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+            },
+            {
+              "Key": "deployment_id",
+              "Value": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+            },
+            {
+              "Key": "environment",
+              "Value": "production"
+            },
+            {
+              "Key": "layer",
+              "Value": "data-foundation"
+            },
+            {
+              "Key": "managed_by",
+              "Value": "external-account-baseline"
+            },
+            {
+              "Key": "purpose",
+              "Value": "application-data-encryption"
+            }
+          ]
+        },
+        "Type": "AWS::KMS::Key",
+        "UpdateReplacePolicy": "Retain"
+      },
+      "FrontendBucket": {
+        "DeletionPolicy": "Retain",
+        "Properties": {
+          "BucketEncryption": {
+            "ServerSideEncryptionConfiguration": [
+              {
+                "ServerSideEncryptionByDefault": {
+                  "SSEAlgorithm": "AES256"
+                }
+              }
+            ]
+          },
+          "BucketName": "scanalyze-111111111111-frontend",
+          "OwnershipControls": {
+            "Rules": [
+              {
+                "ObjectOwnership": "BucketOwnerEnforced"
+              }
+            ]
+          },
+          "PublicAccessBlockConfiguration": {
+            "BlockPublicAcls": true,
+            "BlockPublicPolicy": true,
+            "IgnorePublicAcls": true,
+            "RestrictPublicBuckets": true
+          },
+          "Tags": [
+            {
+              "Key": "customer_id",
+              "Value": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+            },
+            {
+              "Key": "deployment_id",
+              "Value": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV"
+            },
+            {
+              "Key": "environment",
+              "Value": "production"
+            },
+            {
+              "Key": "layer",
+              "Value": "edge"
+            },
+            {
+              "Key": "managed_by",
+              "Value": "external-account-baseline"
+            },
+            {
+              "Key": "purpose",
+              "Value": "frontend-storage"
+            }
+          ],
+          "VersioningConfiguration": {
+            "Status": "Enabled"
+          }
+        },
+        "Type": "AWS::S3::Bucket",
+        "UpdateReplacePolicy": "Retain"
+      },
+      "FrontendBucketPolicy": {
+        "DeletionPolicy": "Retain",
+        "Properties": {
+          "Bucket": {
+            "Ref": "FrontendBucket"
+          },
+          "PolicyDocument": {
+            "Statement": [
+              {
+                "Action": "s3:*",
+                "Condition": {
+                  "Bool": {
+                    "aws:SecureTransport": "false"
+                  }
+                },
+                "Effect": "Deny",
+                "Principal": "*",
+                "Resource": [
+                  "arn:aws:s3:::scanalyze-111111111111-frontend",
+                  "arn:aws:s3:::scanalyze-111111111111-frontend/*"
+                ],
+                "Sid": "DenyNonTLS"
+              }
+            ],
+            "Version": "2012-10-17"
+          }
+        },
+        "Type": "AWS::S3::BucketPolicy",
+        "UpdateReplacePolicy": "Retain"
+      }
+    },
+    "Rules": {
+      "BoundDestination": {
+        "Assertions": [
+          {
+            "Assert": {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::AccountId"
+                },
+                "111111111111"
+              ]
+            },
+            "AssertDescription": "Account must match the approved destination."
+          },
+          {
+            "Assert": {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "us-east-1"
+              ]
+            },
+            "AssertDescription": "Region must match the approved destination."
+          }
+        ]
+      }
+    }
+  },
+  "aws_partition": "aws",
+  "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "environment": "production",
+  "frontend_bucket": {
+    "arn": "arn:aws:s3:::scanalyze-111111111111-frontend",
+    "bucket_policy": {
+      "Statement": [
+        {
+          "Action": "s3:*",
+          "Condition": {
+            "Bool": {
+              "aws:SecureTransport": "false"
+            }
+          },
+          "Effect": "Deny",
+          "Principal": "*",
+          "Resource": [
+            "arn:aws:s3:::scanalyze-111111111111-frontend",
+            "arn:aws:s3:::scanalyze-111111111111-frontend/*"
+          ],
+          "Sid": "DenyNonTLS"
+        }
+      ],
+      "Version": "2012-10-17"
+    },
+    "controls": {
+      "block_public_acls": true,
+      "block_public_policy": true,
+      "encryption": "AES256",
+      "ignore_public_acls": true,
+      "ownership": "BucketOwnerEnforced",
+      "restrict_public_buckets": true,
+      "versioning": "Enabled"
+    },
+    "name": "scanalyze-111111111111-frontend",
+    "owner_account_id": "111111111111",
+    "region": "us-east-1",
+    "tags": {
+      "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "environment": "production",
+      "layer": "edge",
+      "managed_by": "external-account-baseline",
+      "purpose": "frontend-storage"
+    }
+  },
+  "keys": {
+    "cicd_artifacts": {
+      "alias_name": "alias/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cicd-artifacts",
+      "alias_target_key_id": "00000000-0000-4000-8000-000000000002",
+      "key_arn": "arn:aws:kms:us-east-1:111111111111:key/00000000-0000-4000-8000-000000000002",
+      "key_id": "00000000-0000-4000-8000-000000000002",
+      "key_manager": "CUSTOMER",
+      "key_policy": {
+        "Statement": [
+          {
+            "Action": "kms:*",
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": "arn:aws:iam::111111111111:root"
+            },
+            "Resource": "*",
+            "Sid": "RootAccountAccess"
+          }
+        ],
+        "Version": "2012-10-17"
+      },
+      "key_spec": "SYMMETRIC_DEFAULT",
+      "key_state": "Enabled",
+      "key_usage": "ENCRYPT_DECRYPT",
+      "multi_region": false,
+      "origin": "AWS_KMS",
+      "rotation_enabled": true,
+      "tags": {
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "environment": "production",
+        "layer": "cicd",
+        "managed_by": "external-account-baseline",
+        "purpose": "cicd-artifact-encryption"
+      }
+    },
+    "data": {
+      "alias_name": "alias/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-data",
+      "alias_target_key_id": "00000000-0000-4000-8000-000000000001",
+      "key_arn": "arn:aws:kms:us-east-1:111111111111:key/00000000-0000-4000-8000-000000000001",
+      "key_id": "00000000-0000-4000-8000-000000000001",
+      "key_manager": "CUSTOMER",
+      "key_policy": {
+        "Statement": [
+          {
+            "Action": "kms:*",
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": "arn:aws:iam::111111111111:root"
+            },
+            "Resource": "*",
+            "Sid": "RootAccountAccess"
+          },
+          {
+            "Action": [
+              "kms:Decrypt",
+              "kms:GenerateDataKey",
+              "kms:GenerateDataKeyWithoutPlaintext",
+              "kms:DescribeKey"
+            ],
+            "Condition": {
+              "StringEquals": {
+                "kms:ViaService": [
+                  "s3.us-east-1.amazonaws.com",
+                  "dynamodb.us-east-1.amazonaws.com",
+                  "sqs.us-east-1.amazonaws.com"
+                ]
+              }
+            },
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": "arn:aws:iam::111111111111:root"
+            },
+            "Resource": "*",
+            "Sid": "WorkloadEncryptDecrypt"
+          }
+        ],
+        "Version": "2012-10-17"
+      },
+      "key_spec": "SYMMETRIC_DEFAULT",
+      "key_state": "Enabled",
+      "key_usage": "ENCRYPT_DECRYPT",
+      "multi_region": false,
+      "origin": "AWS_KMS",
+      "rotation_enabled": true,
+      "tags": {
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "environment": "production",
+        "layer": "data-foundation",
+        "managed_by": "external-account-baseline",
+        "purpose": "application-data-encryption"
+      }
+    }
+  },
+  "observed_at": "2026-09-14T02:00:00Z",
+  "readback_digest": "sha256:c7e36312db9d6f423a7289868e51a1375c23f96fcb1a534823f09e98c20c4168",
+  "record_type": "application_storage_foundation_readback",
+  "region": "us-east-1",
+  "request_digest": "sha256:1626727b6cc33217a40ae83491151edca91a4af4fb7066200a1f426ab35b486d",
+  "schema_version": "1",
+  "stack_arn": "arn:aws:cloudformation:us-east-1:111111111111:stack/synthetic-storage/00000000-0000-4000-8000-000000000003",
+  "stack_resources": {
+    "ArtifactsAlias": "alias/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cicd-artifacts",
+    "ArtifactsKey": "00000000-0000-4000-8000-000000000002",
+    "DataAlias": "alias/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-data",
+    "DataKey": "00000000-0000-4000-8000-000000000001",
+    "FrontendBucket": "scanalyze-111111111111-frontend",
+    "FrontendBucketPolicy": "scanalyze-111111111111-frontend"
+  },
+  "stack_status": "CREATE_COMPLETE",
+  "status": "CLOSED"
+}

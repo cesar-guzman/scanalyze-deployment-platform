@@ -1,0 +1,432 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/application-storage-receipt.v1.schema.json",
+  "title": "Application storage foundation receipt v1",
+  "description": "Offline contract; an independently trusted expected digest is required. This document alone does not prove live resources or grant authority.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "aws_partition",
+    "ownership_mode",
+    "installation_mode",
+    "request_digest",
+    "template_sha256",
+    "initial_readback_digest",
+    "initial_observed_at",
+    "keys",
+    "frontend_bucket",
+    "contract_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "record_type": {
+      "const": "application_storage_foundation_receipt"
+    },
+    "customer_id": {
+      "type": "string",
+      "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "deployment_id": {
+      "type": "string",
+      "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "account_id": {
+      "type": "string",
+      "pattern": "^(?!000000000000$)[0-9]{12}$"
+    },
+    "region": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+    },
+    "environment": {
+      "enum": [
+        "sandbox",
+        "dev",
+        "staging",
+        "production"
+      ]
+    },
+    "aws_partition": {
+      "enum": [
+        "aws",
+        "aws-us-gov",
+        "aws-cn"
+      ]
+    },
+    "ownership_mode": {
+      "const": "baseline"
+    },
+    "installation_mode": {
+      "const": "greenfield"
+    },
+    "request_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "template_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "initial_readback_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "initial_observed_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "keys": {
+      "type": "object",
+      "required": [
+        "data",
+        "cicd_artifacts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "type": "object",
+          "required": [
+            "key_arn",
+            "key_id",
+            "alias_name",
+            "alias_target_key_id",
+            "key_state",
+            "key_manager",
+            "key_spec",
+            "key_usage",
+            "origin",
+            "multi_region",
+            "rotation_enabled",
+            "tags",
+            "policy_sha256"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "key_arn": {
+              "type": "string",
+              "minLength": 1
+            },
+            "key_id": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$"
+            },
+            "alias_name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "alias_target_key_id": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$"
+            },
+            "key_state": {
+              "type": "string",
+              "const": "Enabled"
+            },
+            "key_manager": {
+              "type": "string",
+              "const": "CUSTOMER"
+            },
+            "key_spec": {
+              "type": "string",
+              "const": "SYMMETRIC_DEFAULT"
+            },
+            "key_usage": {
+              "type": "string",
+              "const": "ENCRYPT_DECRYPT"
+            },
+            "origin": {
+              "type": "string",
+              "const": "AWS_KMS"
+            },
+            "multi_region": {
+              "type": "boolean",
+              "const": false
+            },
+            "rotation_enabled": {
+              "type": "boolean",
+              "const": true
+            },
+            "tags": {
+              "type": "object",
+              "required": [
+                "customer_id",
+                "deployment_id",
+                "environment",
+                "layer",
+                "purpose",
+                "managed_by"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "customer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "deployment_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "environment": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "layer": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "purpose": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "managed_by": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "policy_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        },
+        "cicd_artifacts": {
+          "type": "object",
+          "required": [
+            "key_arn",
+            "key_id",
+            "alias_name",
+            "alias_target_key_id",
+            "key_state",
+            "key_manager",
+            "key_spec",
+            "key_usage",
+            "origin",
+            "multi_region",
+            "rotation_enabled",
+            "tags",
+            "policy_sha256"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "key_arn": {
+              "type": "string",
+              "minLength": 1
+            },
+            "key_id": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$"
+            },
+            "alias_name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "alias_target_key_id": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$"
+            },
+            "key_state": {
+              "type": "string",
+              "const": "Enabled"
+            },
+            "key_manager": {
+              "type": "string",
+              "const": "CUSTOMER"
+            },
+            "key_spec": {
+              "type": "string",
+              "const": "SYMMETRIC_DEFAULT"
+            },
+            "key_usage": {
+              "type": "string",
+              "const": "ENCRYPT_DECRYPT"
+            },
+            "origin": {
+              "type": "string",
+              "const": "AWS_KMS"
+            },
+            "multi_region": {
+              "type": "boolean",
+              "const": false
+            },
+            "rotation_enabled": {
+              "type": "boolean",
+              "const": true
+            },
+            "tags": {
+              "type": "object",
+              "required": [
+                "customer_id",
+                "deployment_id",
+                "environment",
+                "layer",
+                "purpose",
+                "managed_by"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "customer_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "deployment_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "environment": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "layer": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "purpose": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "managed_by": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "policy_sha256": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            }
+          }
+        }
+      }
+    },
+    "frontend_bucket": {
+      "type": "object",
+      "required": [
+        "name",
+        "arn",
+        "region",
+        "owner_account_id",
+        "controls",
+        "tags",
+        "policy_sha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "arn": {
+          "type": "string",
+          "minLength": 1
+        },
+        "region": {
+          "type": "string",
+          "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$"
+        },
+        "owner_account_id": {
+          "type": "string",
+          "pattern": "^(?!000000000000$)[0-9]{12}$"
+        },
+        "controls": {
+          "type": "object",
+          "required": [
+            "encryption",
+            "versioning",
+            "ownership",
+            "block_public_acls",
+            "block_public_policy",
+            "ignore_public_acls",
+            "restrict_public_buckets"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "encryption": {
+              "type": "string",
+              "const": "AES256"
+            },
+            "versioning": {
+              "type": "string",
+              "const": "Enabled"
+            },
+            "ownership": {
+              "type": "string",
+              "const": "BucketOwnerEnforced"
+            },
+            "block_public_acls": {
+              "type": "boolean",
+              "const": true
+            },
+            "block_public_policy": {
+              "type": "boolean",
+              "const": true
+            },
+            "ignore_public_acls": {
+              "type": "boolean",
+              "const": true
+            },
+            "restrict_public_buckets": {
+              "type": "boolean",
+              "const": true
+            }
+          }
+        },
+        "tags": {
+          "type": "object",
+          "required": [
+            "customer_id",
+            "deployment_id",
+            "environment",
+            "layer",
+            "purpose",
+            "managed_by"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "customer_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "deployment_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "environment": {
+              "type": "string",
+              "minLength": 1
+            },
+            "layer": {
+              "type": "string",
+              "minLength": 1
+            },
+            "purpose": {
+              "type": "string",
+              "minLength": 1
+            },
+            "managed_by": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "policy_sha256": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      }
+    },
+    "contract_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

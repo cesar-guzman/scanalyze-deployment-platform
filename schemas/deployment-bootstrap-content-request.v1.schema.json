@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/deployment-bootstrap-content-request.v1.schema.json",
+  "title": "Deployment Bootstrap Content Request v1",
+  "description": "Closed pre-publication admission for first-install content. Binds the immutable destination tuple, shared-services account, and model selection before any S3 VersionId exists. Must not contain publication VersionIds.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "record_type",
+    "customer_id",
+    "deployment_id",
+    "account_id",
+    "region",
+    "environment",
+    "shared_services_account_id",
+    "model_selection_digest",
+    "record_digest"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "1" },
+    "record_type": { "const": "deployment_bootstrap_content_request" },
+    "customer_id": { "type": "string", "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "deployment_id": { "type": "string", "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$" },
+    "account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "region": { "type": "string", "pattern": "^[a-z]{2}(?:-[a-z]+)+-[0-9]+$" },
+    "environment": { "enum": ["sandbox", "dev", "staging", "production"] },
+    "shared_services_account_id": { "type": "string", "pattern": "^(?!000000000000$)[0-9]{12}$" },
+    "model_selection_digest": { "$ref": "#/$defs/digest" },
+    "record_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

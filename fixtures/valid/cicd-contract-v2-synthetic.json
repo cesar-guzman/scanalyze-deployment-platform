@@ -1,0 +1,30 @@
+{
+  "schema_version": "2",
+  "customer_id": "cust_BBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "deployment_id": "dep_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "aws_account_id": "123456789012",
+  "region": "us-east-1",
+  "scope": "regional",
+  "layer": "cicd",
+  "producer": "roots/cicd",
+  "release_version": "2.4.0",
+  "release_digest": "sha256:10fcefdd28c76e9561a806b5d4e3c1c8323e8c41f801b41e43c2b0eed4637241",
+  "output_schema_version": "cicd/v2",
+  "outputs": {
+    "artifact_bucket_name": "dep-aaaaaaaaaaaaaaaaaaaaaaaaaa-cicd-artifacts",
+    "artifact_kms_key_arn": "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+    "ecr_repository_urls": {},
+    "ecr_repository_arns": {},
+    "pipeline_arns": {},
+    "pipeline_names": {},
+    "codecommit_clone_urls": {},
+    "release_metadata": {},
+    "codebuild_role_arn": null,
+    "codepipeline_role_arn": null
+  },
+  "contract_digest": "sha256:124048c7fa19837dc5bf49624c7ca6d4388a02e1485e31655aee629dc314048c",
+  "produced_at": "2026-08-28T20:03:00Z",
+  "terraform_workspace": "default",
+  "state_key": "dep_AAAAAAAAAAAAAAAAAAAAAAAAAA/us-east-1/cicd/terraform.tfstate",
+  "module_source_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+}

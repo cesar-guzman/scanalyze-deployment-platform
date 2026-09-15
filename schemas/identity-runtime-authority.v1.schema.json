@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/identity-runtime-authority.v1.schema.json",
+  "title": "Reviewed identity runtime authority v1",
+  "description": "Closed offline authority pinned by a reviewed sealed request. Every nested payload is independently validated; pins must never be generated from received input by a live caller.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "expected_release_document_digest", "cicd_contract", "expected_cicd_contract_digest", "publication_receipt", "expected_publication_digest", "identity_registry", "expected_identity_registry_digest", "authorization_policy", "expected_authorization_policy_digest", "policy_version", "control_processor_enabled"],
+  "properties": {
+    "schema_version": {"const": "identity-runtime-authority.v1"},
+    "expected_release_document_digest": {"$ref": "#/$defs/digest"},
+    "cicd_contract": {"type": "object", "minProperties": 1},
+    "expected_cicd_contract_digest": {"$ref": "#/$defs/digest"},
+    "publication_receipt": {"type": "object", "minProperties": 1},
+    "expected_publication_digest": {"$ref": "#/$defs/digest"},
+    "identity_registry": {"type": "object", "minProperties": 1},
+    "expected_identity_registry_digest": {"$ref": "#/$defs/digest"},
+    "authorization_policy": {"type": "object", "minProperties": 1},
+    "expected_authorization_policy_digest": {"$ref": "#/$defs/digest"},
+    "policy_version": {"type": "string", "pattern": "^[0-9]+[.][0-9]+[.][0-9]+$"},
+    "control_processor_enabled": {"type": "boolean"},
+    "cognito_pool_ownership_mode": {"enum": ["native", "cloudcontrol_passkey_greenfield"]}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}
+  }
+}

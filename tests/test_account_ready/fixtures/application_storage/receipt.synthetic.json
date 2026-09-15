@@ -1,0 +1,87 @@
+{
+  "account_id": "111111111111",
+  "aws_partition": "aws",
+  "contract_digest": "sha256:dd67c84cb8b554a78e1396bb3c85284be14e1cfbc7639950f50f5412a3e86099",
+  "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "environment": "production",
+  "frontend_bucket": {
+    "arn": "arn:aws:s3:::scanalyze-111111111111-frontend",
+    "controls": {
+      "block_public_acls": true,
+      "block_public_policy": true,
+      "encryption": "AES256",
+      "ignore_public_acls": true,
+      "ownership": "BucketOwnerEnforced",
+      "restrict_public_buckets": true,
+      "versioning": "Enabled"
+    },
+    "name": "scanalyze-111111111111-frontend",
+    "owner_account_id": "111111111111",
+    "policy_sha256": "sha256:81439ef4f88bf27949eb0771e95cbcfa8f0ff774ef88e571f7e688597d0ce566",
+    "region": "us-east-1",
+    "tags": {
+      "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "environment": "production",
+      "layer": "edge",
+      "managed_by": "external-account-baseline",
+      "purpose": "frontend-storage"
+    }
+  },
+  "initial_observed_at": "2026-09-14T02:00:00Z",
+  "initial_readback_digest": "sha256:c7e36312db9d6f423a7289868e51a1375c23f96fcb1a534823f09e98c20c4168",
+  "installation_mode": "greenfield",
+  "keys": {
+    "cicd_artifacts": {
+      "alias_name": "alias/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cicd-artifacts",
+      "alias_target_key_id": "00000000-0000-4000-8000-000000000002",
+      "key_arn": "arn:aws:kms:us-east-1:111111111111:key/00000000-0000-4000-8000-000000000002",
+      "key_id": "00000000-0000-4000-8000-000000000002",
+      "key_manager": "CUSTOMER",
+      "key_spec": "SYMMETRIC_DEFAULT",
+      "key_state": "Enabled",
+      "key_usage": "ENCRYPT_DECRYPT",
+      "multi_region": false,
+      "origin": "AWS_KMS",
+      "policy_sha256": "sha256:f907cdd136f0ab3d7e1965ec597a2c2bd3b1162d80d2506d069cca39359b07c0",
+      "rotation_enabled": true,
+      "tags": {
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "environment": "production",
+        "layer": "cicd",
+        "managed_by": "external-account-baseline",
+        "purpose": "cicd-artifact-encryption"
+      }
+    },
+    "data": {
+      "alias_name": "alias/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-data",
+      "alias_target_key_id": "00000000-0000-4000-8000-000000000001",
+      "key_arn": "arn:aws:kms:us-east-1:111111111111:key/00000000-0000-4000-8000-000000000001",
+      "key_id": "00000000-0000-4000-8000-000000000001",
+      "key_manager": "CUSTOMER",
+      "key_spec": "SYMMETRIC_DEFAULT",
+      "key_state": "Enabled",
+      "key_usage": "ENCRYPT_DECRYPT",
+      "multi_region": false,
+      "origin": "AWS_KMS",
+      "policy_sha256": "sha256:10bb648656ea0ad9a23a70cd9c029b813800736a2ce03b8157ad9337121329ca",
+      "rotation_enabled": true,
+      "tags": {
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "environment": "production",
+        "layer": "data-foundation",
+        "managed_by": "external-account-baseline",
+        "purpose": "application-data-encryption"
+      }
+    }
+  },
+  "ownership_mode": "baseline",
+  "record_type": "application_storage_foundation_receipt",
+  "region": "us-east-1",
+  "request_digest": "sha256:1626727b6cc33217a40ae83491151edca91a4af4fb7066200a1f426ab35b486d",
+  "schema_version": "1",
+  "template_sha256": "sha256:9b3ebf5d4e5f1878e6b7566f8d4ef97c63cfda33ce6d3a41ca7f0e45346244b9"
+}

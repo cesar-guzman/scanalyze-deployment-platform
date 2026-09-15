@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/application-storage-oac-transition.v1.schema.json",
+  "title": "Application storage oac-transition v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_type",
+    "foundation_receipt_digest",
+    "edge_envelope_digest",
+    "edge_locator_digest",
+    "initial_edge_readback_digest",
+    "release_digest",
+    "previous_template_sha256",
+    "template_sha256",
+    "previous_policy_sha256",
+    "policy_sha256",
+    "transition_digest",
+    "release_version",
+    "distribution_id",
+    "distribution_arn",
+    "origin_access_control_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "record_type": {
+      "type": "string",
+      "const": "application_storage_oac_transition"
+    },
+    "foundation_receipt_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "edge_envelope_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "edge_locator_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "initial_edge_readback_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "release_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "previous_template_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "template_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "previous_policy_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "policy_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "transition_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "release_version": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+    },
+    "distribution_id": {
+      "type": "string",
+      "pattern": "^[A-Z0-9]{1,64}$"
+    },
+    "distribution_arn": {
+      "type": "string",
+      "minLength": 1
+    },
+    "origin_access_control_id": {
+      "type": "string",
+      "pattern": "^[A-Z0-9]{1,64}$"
+    }
+  }
+}

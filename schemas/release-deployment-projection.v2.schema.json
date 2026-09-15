@@ -1,0 +1,692 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/release-deployment-projection.v2.schema.json",
+  "title": "Signed Release and Verified Publication Deployment Projection v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "target",
+    "release_id",
+    "release_version",
+    "release_manifest_digest",
+    "release_attestation_digest",
+    "service_images",
+    "runtime_artifacts",
+    "promotion_mode",
+    "rebuild",
+    "publication_binding"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "release-deployment-projection.v2"
+    },
+    "target": {
+      "type": "string",
+      "enum": [
+        "sandbox",
+        "staging",
+        "production"
+      ]
+    },
+    "release_id": {
+      "type": "string",
+      "pattern": "^rel_"
+    },
+    "release_version": {
+      "type": "string"
+    },
+    "release_manifest_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "release_attestation_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "service_images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ingest-api",
+        "ocr-worker",
+        "postprocess-worker",
+        "classifier-worker",
+        "bank-worker",
+        "personal-worker",
+        "gov-worker"
+      ],
+      "properties": {
+        "ingest-api": {
+          "$ref": "#/$defs/digest_uri"
+        },
+        "ocr-worker": {
+          "$ref": "#/$defs/digest_uri"
+        },
+        "postprocess-worker": {
+          "$ref": "#/$defs/digest_uri"
+        },
+        "classifier-worker": {
+          "$ref": "#/$defs/digest_uri"
+        },
+        "bank-worker": {
+          "$ref": "#/$defs/digest_uri"
+        },
+        "personal-worker": {
+          "$ref": "#/$defs/digest_uri"
+        },
+        "gov-worker": {
+          "$ref": "#/$defs/digest_uri"
+        }
+      }
+    },
+    "runtime_artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity-pre-token-lambda",
+        "identity-control-processor-lambda",
+        "scanalyze-frontend-ui"
+      ],
+      "properties": {
+        "identity-pre-token-lambda": {
+          "$ref": "#/$defs/archive"
+        },
+        "identity-control-processor-lambda": {
+          "$ref": "#/$defs/archive"
+        },
+        "scanalyze-frontend-ui": {
+          "$ref": "#/$defs/archive"
+        }
+      }
+    },
+    "promotion_mode": {
+      "const": "copy-by-digest"
+    },
+    "rebuild": {
+      "const": false
+    },
+    "publication_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "plan",
+        "readback",
+        "expected_plan_digest",
+        "expected_readback_digest"
+      ],
+      "properties": {
+        "status": {
+          "const": "OBSERVATIONS_MATCH_PLAN_NOT_EXECUTION_AUTHORITY"
+        },
+        "plan": {
+          "$ref": "#/$defs/plan"
+        },
+        "readback": {
+          "$ref": "#/$defs/readback"
+        },
+        "expected_plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "expected_readback_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "digest_uri": {
+      "type": "string",
+      "pattern": "@sha256:[a-f0-9]{64}$"
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "uri",
+        "digest",
+        "version_id"
+      ],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "pattern": "^s3://[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]/(?:[A-Za-z0-9._~-]+/)*sha256/[a-f0-9]{64}/[A-Za-z0-9._~/-]+$"
+        },
+        "digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "version_id": {
+          "type": "string",
+          "pattern": "^(?![nN][uU][lL][lL]$)[!-~]{1,1024}$"
+        }
+      }
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "target": {
+      "type": "object",
+      "required": [
+        "customer_id",
+        "deployment_id",
+        "account_id",
+        "region",
+        "environment",
+        "aws_partition"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "customer_id": {
+          "type": "string",
+          "pattern": "^cust_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "deployment_id": {
+          "type": "string",
+          "pattern": "^dep_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "account_id": {
+          "type": "string",
+          "pattern": "^(?!000000000000$)[0-9]{12}$"
+        },
+        "region": {
+          "type": "string",
+          "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$"
+        },
+        "environment": {
+          "enum": [
+            "dev",
+            "staging",
+            "production"
+          ]
+        },
+        "aws_partition": {
+          "const": "aws"
+        }
+      }
+    },
+    "pins": {
+      "type": "object",
+      "required": [
+        "release_document_digest",
+        "release_manifest_digest",
+        "attestation_document_digest",
+        "trust_policy_digest",
+        "target_anchor_digest",
+        "cicd_contract_document_digest",
+        "storage_receipt_digest",
+        "storage_readback_digest",
+        "storage_access_digest",
+        "storage_access_pins_digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "release_document_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "release_manifest_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "attestation_document_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "trust_policy_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "target_anchor_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "cicd_contract_document_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "storage_receipt_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "storage_readback_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "storage_access_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "storage_access_pins_digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "uri",
+        "digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "uri": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "destination": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "repository_arn",
+            "repository_url"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "ecr"
+            },
+            "repository_arn": {
+              "type": "string",
+              "pattern": "^arn:aws:ecr:[a-z0-9-]+:[0-9]{12}:repository/[a-z0-9_./-]+$"
+            },
+            "repository_url": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "bucket",
+            "key",
+            "sse_algorithm",
+            "kms_key_arn"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "s3"
+            },
+            "bucket": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "sse_algorithm": {
+              "enum": [
+                "AES256",
+                "aws:kms"
+              ]
+            },
+            "kms_key_arn": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "pattern": "^arn:aws:kms:[a-z0-9-]+:[0-9]{12}:key/[a-z0-9-]+$"
+            }
+          }
+        }
+      ]
+    },
+    "copy": {
+      "type": "object",
+      "required": [
+        "artifact_id",
+        "kind",
+        "digest",
+        "media_type",
+        "source",
+        "destination"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "enum": [
+            "scanalyze-ingest-api",
+            "scanalyze-ocr-worker",
+            "scanalyze-postprocess-worker",
+            "scanalyze-classifier-worker",
+            "scanalyze-bank-worker",
+            "scanalyze-personal-worker",
+            "scanalyze-gov-worker",
+            "identity-pre-token-lambda",
+            "identity-control-processor-lambda",
+            "scanalyze-frontend-ui"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "container",
+            "archive"
+          ]
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "media_type": {
+          "type": "string",
+          "pattern": "^application/[A-Za-z0-9.+-]+$"
+        },
+        "source": {
+          "$ref": "#/$defs/source"
+        },
+        "destination": {
+          "$ref": "#/$defs/destination"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "container"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "destination": {
+                "properties": {
+                  "kind": {
+                    "const": "ecr"
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "destination": {
+                "properties": {
+                  "kind": {
+                    "const": "s3"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "request_digest",
+        "change_id",
+        "target",
+        "pins",
+        "promotion_role_arn",
+        "source_reads",
+        "archive_keys"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "release-publication-request.v1"
+        },
+        "request_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "change_id": {
+          "type": "string",
+          "pattern": "^chg_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "pins": {
+          "$ref": "#/$defs/pins"
+        },
+        "promotion_role_arn": {
+          "type": "string",
+          "pattern": "^arn:aws:iam::[0-9]{12}:role/ScanalyzeCustomer-Promotion$"
+        },
+        "source_reads": {
+          "type": "object",
+          "required": [
+            "scanalyze-ingest-api",
+            "scanalyze-ocr-worker",
+            "scanalyze-postprocess-worker",
+            "scanalyze-classifier-worker",
+            "scanalyze-bank-worker",
+            "scanalyze-personal-worker",
+            "scanalyze-gov-worker",
+            "identity-pre-token-lambda",
+            "identity-control-processor-lambda",
+            "scanalyze-frontend-ui"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "scanalyze-ingest-api": {
+              "$ref": "#/$defs/source"
+            },
+            "scanalyze-ocr-worker": {
+              "$ref": "#/$defs/source"
+            },
+            "scanalyze-postprocess-worker": {
+              "$ref": "#/$defs/source"
+            },
+            "scanalyze-classifier-worker": {
+              "$ref": "#/$defs/source"
+            },
+            "scanalyze-bank-worker": {
+              "$ref": "#/$defs/source"
+            },
+            "scanalyze-personal-worker": {
+              "$ref": "#/$defs/source"
+            },
+            "scanalyze-gov-worker": {
+              "$ref": "#/$defs/source"
+            },
+            "identity-pre-token-lambda": {
+              "$ref": "#/$defs/source"
+            },
+            "identity-control-processor-lambda": {
+              "$ref": "#/$defs/source"
+            },
+            "scanalyze-frontend-ui": {
+              "$ref": "#/$defs/source"
+            }
+          }
+        },
+        "archive_keys": {
+          "type": "object",
+          "required": [
+            "identity-pre-token-lambda",
+            "identity-control-processor-lambda",
+            "scanalyze-frontend-ui"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "identity-pre-token-lambda": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "identity-control-processor-lambda": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            },
+            "scanalyze-frontend-ui": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          }
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "plan_digest",
+        "status",
+        "execution_requirement",
+        "frontend_status",
+        "request_digest",
+        "change_id",
+        "target",
+        "pins",
+        "promotion_role_arn",
+        "release_version",
+        "evaluated_at",
+        "copy_mode",
+        "rebuild",
+        "resign",
+        "overwrite",
+        "copies"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "release-publication-plan.v1"
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "status": {
+          "const": "PREPARED_NOT_PUBLISHED"
+        },
+        "execution_requirement": {
+          "const": "AUTHORIZATION_CONTRACT_REQUIRED"
+        },
+        "frontend_status": {
+          "const": "ASSETS_NOT_EXPANDED"
+        },
+        "request_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "change_id": {
+          "type": "string",
+          "pattern": "^chg_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "target": {
+          "$ref": "#/$defs/target"
+        },
+        "pins": {
+          "$ref": "#/$defs/pins"
+        },
+        "promotion_role_arn": {
+          "type": "string",
+          "pattern": "^arn:aws:iam::[0-9]{12}:role/ScanalyzeCustomer-Promotion$"
+        },
+        "release_version": {
+          "type": "string",
+          "pattern": "^[0-9]+[.][0-9]+[.][0-9]+(?:-[0-9A-Za-z.-]+)?$"
+        },
+        "evaluated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "copy_mode": {
+          "const": "copy-by-digest"
+        },
+        "rebuild": {
+          "const": false
+        },
+        "resign": {
+          "const": false
+        },
+        "overwrite": {
+          "const": false
+        },
+        "copies": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/copy"
+          }
+        }
+      }
+    },
+    "readback": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "readback_digest",
+        "plan_digest",
+        "observed_at",
+        "observations"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "release-publication-readback.v1"
+        },
+        "readback_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "plan_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "observations": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "required": [
+              "artifact_id",
+              "destination",
+              "digest",
+              "object_version"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "artifact_id": {
+                "enum": [
+                  "scanalyze-ingest-api",
+                  "scanalyze-ocr-worker",
+                  "scanalyze-postprocess-worker",
+                  "scanalyze-classifier-worker",
+                  "scanalyze-bank-worker",
+                  "scanalyze-personal-worker",
+                  "scanalyze-gov-worker",
+                  "identity-pre-token-lambda",
+                  "identity-control-processor-lambda",
+                  "scanalyze-frontend-ui"
+                ]
+              },
+              "destination": {
+                "$ref": "#/$defs/destination"
+              },
+              "digest": {
+                "$ref": "#/$defs/digest"
+              },
+              "object_version": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 1024
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "description": "Explicit destination projection. Publication observations and their externally authenticated pins do not themselves prove AWS reads, durable execution custody, or frontend activation."
+}
