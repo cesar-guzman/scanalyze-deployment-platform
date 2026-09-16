@@ -21,6 +21,7 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 from tooling.platform_authority_bootstrap_sdk_lock import import_vendored_sdk, validate_sdk_entries, VendoredSDKError
 
 from tooling.platform_authority_bootstrap import (
+    SingleOwnerPolicy,
     PUBLIC_ACCESS_BLOCK,
     BootstrapAuthorizationError,
     BootstrapBinding,
@@ -2282,10 +2283,46 @@ class BootstrapArtifactAuthorityRuntimeConfig:
         cls, environment: Mapping[str, str]
     ) -> "BootstrapArtifactAuthorityRuntimeConfig":
         values = {name: environment.get(name) for name in RUNTIME_ENV_FIELDS}
-        if any(not isinstance(value, str) or not value for value in values.values()):
+        if any(not isinstance(value, str) for value in values.values()):
             raise BootstrapArtifactAuthorityError(
                 "artifact authority runtime configuration is unavailable"
             )
+        operator_policy_mode = environment.get(
+            "GUG274_OPERATOR_POLICY_MODE", "independent"
+        )
+        single_owner_authorized_at = environment.get(
+            "GUG274_SINGLE_OWNER_AUTHORIZED_AT", ""
+        )
+        single_owner_expires_at = environment.get(
+            "GUG274_SINGLE_OWNER_EXPIRES_AT", ""
+        )
+        if (
+            operator_policy_mode not in ("independent", "single_owner_v1")
+            or type(single_owner_authorized_at) is not str
+            or type(single_owner_expires_at) is not str
+        ):
+            raise BootstrapArtifactAuthorityError(
+                "artifact authority operator policy configuration is invalid"
+            )
+        required_nonempty = set(RUNTIME_ENV_FIELDS)
+        if operator_policy_mode == "single_owner_v1":
+            required_nonempty.discard("GUG274_SECOND_PARTY_IDENTITY_STORE_USER_ID")
+        if any(
+            not values[name]
+            for name in required_nonempty
+        ):
+            raise BootstrapArtifactAuthorityError(
+                "artifact authority runtime configuration is unavailable"
+            )
+        if operator_policy_mode == "independent":
+            if values["GUG274_SECOND_PARTY_IDENTITY_STORE_USER_ID"] == "":
+                raise BootstrapArtifactAuthorityError(
+                    "artifact authority runtime configuration is unavailable"
+                )
+            if single_owner_authorized_at or single_owner_expires_at:
+                raise BootstrapArtifactAuthorityError(
+                    "artifact authority operator policy configuration is invalid"
+                )
         account_id = str(values["GUG274_AUTHORITY_ACCOUNT_ID"])
         region = str(values["GUG274_AUTHORITY_REGION"])
         grant_version = environment.get("GUG274_IDENTITY_GRANT_VERSION", "1")
@@ -2298,6 +2335,15 @@ class BootstrapArtifactAuthorityRuntimeConfig:
             or any(type(value) is not str for value in jwt_fields.values())
             or (grant_version == "1" and any(jwt_fields.values()))
             or (grant_version == "2" and not all(jwt_fields.values()))
+            or (
+                operator_policy_mode == "single_owner_v1"
+                and (
+                    grant_version != "2"
+                    or not single_owner_authorized_at
+                    or not single_owner_expires_at
+                    or values["GUG274_SECOND_PARTY_IDENTITY_STORE_USER_ID"] != ""
+                )
+            )
         ):
             raise BootstrapArtifactAuthorityError(
                 "artifact authority identity grant configuration is invalid"
@@ -2323,6 +2369,12 @@ class BootstrapArtifactAuthorityRuntimeConfig:
                 "artifact authority runtime provenance is invalid"
             )
         try:
+            single_owner_policy = None
+            if operator_policy_mode == "single_owner_v1":
+                single_owner_policy = SingleOwnerPolicy(
+                    authorized_at=single_owner_authorized_at,
+                    expires_at=single_owner_expires_at,
+                )
             binding = BootstrapBinding(
                 authority_account_id=account_id,
                 region=region,
@@ -2332,6 +2384,7 @@ class BootstrapArtifactAuthorityRuntimeConfig:
                 ),
                 state_key="platform-authority/terraform.tfstate",
                 destination_account_ids=destinations,
+                single_owner=single_owner_policy,
             )
             change_set_name = validate_bootstrap_change_set_name(
                 str(values["GUG274_CHANGE_SET_NAME"])
@@ -2385,6 +2438,7 @@ class BootstrapArtifactAuthorityRuntimeConfig:
                     role_prefix + "ScanalyzeGug274BootstrapApplyIdentityProof"
                 ),
                 jwt_bearer=jwt_binding,
+                single_owner=single_owner_policy,
             )
         except BootstrapAuthorizationError:
             raise BootstrapArtifactAuthorityError(

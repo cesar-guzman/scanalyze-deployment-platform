@@ -538,3 +538,76 @@ def test_runtime_binding_snapshots_public_metadata_and_digest_changes_with_autho
     assert original.identity_binding.binding_digest == digest
     with pytest.raises(FrozenInstanceError):
         original.identity_binding.jwt_bearer.audience = "caller-selected"
+
+
+def _single_owner_runtime_environment():
+    """Closed César-scope env; not an installation or live UserId."""
+    environment = runtime_environment()
+    environment.update(
+        {
+            "GUG274_AUTHORITY_ACCOUNT_ID": "042360977644",
+            "GUG274_DESTINATION_ACCOUNT_IDS": "905418363887",
+            "GUG274_IDENTITY_CENTER_APPLICATION_ARN": (
+                "arn:aws:sso::042360977644:application/"
+                "ssoins-1234567890abcdef/apl-1234567890abcdef"
+            ),
+            "GUG274_IDENTITY_CENTER_INSTANCE_ARN": (
+                "arn:aws:sso:::instance/ssoins-1234567890abcdef"
+            ),
+            "GUG274_IDENTITY_STORE_ARN": (
+                "arn:aws:identitystore::042360977644:identitystore/d-90667f73ff"
+            ),
+            "GUG274_JWT_TRUSTED_TOKEN_ISSUER_ARN": (
+                "arn:aws:sso::042360977644:trustedTokenIssuer/"
+                "ssoins-1234567890abcdef/tti-11111111-2222-3333-4444-555555555555"
+            ),
+            "GUG274_SECOND_PARTY_IDENTITY_STORE_USER_ID": "",
+            "GUG274_OPERATOR_POLICY_MODE": "single_owner_v1",
+            "GUG274_SINGLE_OWNER_AUTHORIZED_AT": "2026-09-16T00:00:00Z",
+            "GUG274_SINGLE_OWNER_EXPIRES_AT": "2026-09-16T12:00:00Z",
+        }
+    )
+    return environment
+
+
+def test_single_owner_runtime_from_environment_binds_owner_policy_and_empty_peer():
+    from tooling.platform_authority_bootstrap import SingleOwnerPolicy
+
+    config = BootstrapArtifactAuthorityRuntimeConfig.from_environment(
+        _single_owner_runtime_environment()
+    )
+    assert isinstance(config.binding.single_owner, SingleOwnerPolicy)
+    assert config.identity_binding.single_owner is config.binding.single_owner
+    assert config.identity_binding.second_party_user_id == ""
+    assert config.identity_binding.jwt_bearer is not None
+    role_kind, user_id, peer, *_ = config.identity_binding.proof_target("approval")
+    assert role_kind == "single_owner_review"
+    assert user_id == config.identity_binding.plan_user_id
+    assert peer is None
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"GUG274_OPERATOR_POLICY_MODE": "independent"},
+        {"GUG274_SECOND_PARTY_IDENTITY_STORE_USER_ID": fixtures.SECOND_PARTY_USER_ID},
+        {"GUG274_IDENTITY_GRANT_VERSION": "1", **{name: "" for name in JWT_ENVIRONMENT}},
+        {"GUG274_SINGLE_OWNER_AUTHORIZED_AT": ""},
+        {"GUG274_SINGLE_OWNER_EXPIRES_AT": ""},
+        {"GUG274_AUTHORITY_ACCOUNT_ID": "111122223333"},
+    ],
+)
+def test_single_owner_runtime_rejects_incomplete_or_out_of_scope_bindings(changes):
+    environment = _single_owner_runtime_environment()
+    environment.update(changes)
+    with pytest.raises(BootstrapArtifactAuthorityError):
+        BootstrapArtifactAuthorityRuntimeConfig.from_environment(environment)
+
+
+def test_independent_runtime_rejects_single_owner_window_without_mode():
+    environment = runtime_environment() | {
+        "GUG274_SINGLE_OWNER_AUTHORIZED_AT": "2026-09-16T00:00:00Z",
+        "GUG274_SINGLE_OWNER_EXPIRES_AT": "2026-09-16T12:00:00Z",
+    }
+    with pytest.raises(BootstrapArtifactAuthorityError):
+        BootstrapArtifactAuthorityRuntimeConfig.from_environment(environment)

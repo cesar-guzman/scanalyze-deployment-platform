@@ -36,12 +36,33 @@ Parameters:
   SecondPartyIdentityStoreUserId:
     Type: String
     NoEcho: true
-    AllowedPattern: '^([0-9a-fA-F]{10}-)?[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$'
+    AllowedPattern: '^$|^([0-9a-fA-F]{10}-)?[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$'
+    Description: >-
+      Independent mode requires a distinct second human. single_owner_v1 requires
+      the empty string; Approval/Apply proof roles then bind PlanIdentityStoreUserId.
   IdentityGrantVersion:
     Type: String
     Default: '1'
     AllowedValues: ['1', '2']
     Description: Explicit identity grant protocol; version 2 requires the complete reviewed JWT issuer binding.
+  OperatorPolicyMode:
+    Type: String
+    Default: independent
+    AllowedValues: [independent, single_owner_v1]
+    Description: >-
+      independent requires two distinct Identity Store users. single_owner_v1 is
+      the reviewed César-only opt-in and requires IdentityGrantVersion=2 plus an
+      explicit authorization window; SecondPartyIdentityStoreUserId must be empty.
+  SingleOwnerAuthorizedAt:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+    Description: Reviewed UTC start for single_owner_v1; empty in independent mode.
+  SingleOwnerExpiresAt:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+    Description: Reviewed UTC end for single_owner_v1 (<=24h window enforced at runtime); empty in independent mode.
   JwtTrustedTokenIssuerArn:
     Type: String
     Default: ''
@@ -102,6 +123,9 @@ Parameters:
     Type: String
     AllowedPattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
 
+Conditions:
+  SingleOwnerMode: !Equals [!Ref OperatorPolicyMode, single_owner_v1]
+
 Rules:
   ReviewedSignerTrustRootMustBeConfigured:
     Assertions:
@@ -113,11 +137,32 @@ Rules:
     Assertions:
       - Assert: !Equals [!Ref AuthorityAccountId, !Ref AWS::AccountId]
         AssertDescription: The artifact authority must be deployed in its bound account.
-  HumanIdentityUsersMustBeDistinct:
+  IndependentHumanIdentityUsersMustBeDistinct:
+    RuleCondition: !Equals [!Ref OperatorPolicyMode, independent]
     Assertions:
+      - Assert: !Not
+          - !Equals [!Ref SecondPartyIdentityStoreUserId, '']
+        AssertDescription: Independent mode requires a real second-party Identity Store user.
       - Assert: !Not
           - !Equals [!Ref PlanIdentityStoreUserId, !Ref SecondPartyIdentityStoreUserId]
         AssertDescription: Plan and Approval/Apply must bind different Identity Store users.
+      - Assert: !Equals [!Ref SingleOwnerAuthorizedAt, '']
+        AssertDescription: Independent mode cannot carry a single-owner authorization start.
+      - Assert: !Equals [!Ref SingleOwnerExpiresAt, '']
+        AssertDescription: Independent mode cannot carry a single-owner authorization end.
+  SingleOwnerRequiresEmptySecondPartyAndJwtV2:
+    RuleCondition: !Equals [!Ref OperatorPolicyMode, single_owner_v1]
+    Assertions:
+      - Assert: !Equals [!Ref SecondPartyIdentityStoreUserId, '']
+        AssertDescription: single_owner_v1 leaves SecondPartyIdentityStoreUserId empty; all proof roles bind the owner.
+      - Assert: !Equals [!Ref IdentityGrantVersion, '2']
+        AssertDescription: single_owner_v1 requires IdentityGrantVersion 2 (JWT/TTI).
+      - Assert: !Not
+          - !Equals [!Ref SingleOwnerAuthorizedAt, '']
+        AssertDescription: single_owner_v1 requires a reviewed authorization start timestamp.
+      - Assert: !Not
+          - !Equals [!Ref SingleOwnerExpiresAt, '']
+        AssertDescription: single_owner_v1 requires a reviewed authorization end timestamp.
 
   JwtIdentityGrantRequiresCompleteMetadata:
     RuleCondition: !Equals [!Ref IdentityGrantVersion, '2']
@@ -272,7 +317,10 @@ Resources:
                 sts:RequestContextProviders:
                   - arn:aws:iam::aws:contextProvider/IdentityCenter
               StringEquals:
-                sts:RequestContext/identitystore:UserId: !Ref SecondPartyIdentityStoreUserId
+                sts:RequestContext/identitystore:UserId: !If
+                - SingleOwnerMode
+                - !Ref PlanIdentityStoreUserId
+                - !Ref SecondPartyIdentityStoreUserId
               ArnEquals:
                 aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug274BootstrapApprovalAuthority
                 sts:RequestContext/identitystore:IdentityStoreArn: !Ref IdentityStoreArn
@@ -315,7 +363,10 @@ Resources:
                 sts:RequestContextProviders:
                   - arn:aws:iam::aws:contextProvider/IdentityCenter
               StringEquals:
-                sts:RequestContext/identitystore:UserId: !Ref SecondPartyIdentityStoreUserId
+                sts:RequestContext/identitystore:UserId: !If
+                - SingleOwnerMode
+                - !Ref PlanIdentityStoreUserId
+                - !Ref SecondPartyIdentityStoreUserId
               ArnEquals:
                 aws:PrincipalArn: !Sub arn:${AWS::Partition}:iam::${AuthorityAccountId}:role/ScanalyzeGug274BootstrapApplyExecutor
                 sts:RequestContext/identitystore:IdentityStoreArn: !Ref IdentityStoreArn
@@ -755,6 +806,9 @@ Resources:
           GUG274_IDENTITY_REDIRECT_URI: !Ref IdentityRedirectUri
           GUG274_PLAN_IDENTITY_STORE_USER_ID: !Ref PlanIdentityStoreUserId
           GUG274_SECOND_PARTY_IDENTITY_STORE_USER_ID: !Ref SecondPartyIdentityStoreUserId
+          GUG274_OPERATOR_POLICY_MODE: !Ref OperatorPolicyMode
+          GUG274_SINGLE_OWNER_AUTHORIZED_AT: !Ref SingleOwnerAuthorizedAt
+          GUG274_SINGLE_OWNER_EXPIRES_AT: !Ref SingleOwnerExpiresAt
           GUG274_IDENTITY_GRANT_VERSION: !Ref IdentityGrantVersion
           GUG274_JWT_TRUSTED_TOKEN_ISSUER_ARN: !Ref JwtTrustedTokenIssuerArn
           GUG274_JWT_ISSUER_URL: !Ref JwtIssuerUrl

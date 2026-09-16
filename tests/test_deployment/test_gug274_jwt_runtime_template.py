@@ -32,7 +32,17 @@ ENVIRONMENT_PARAMETERS = {
     "GUG274_JWT_TRUSTED_TOKEN_ISSUER_ARN": "JwtTrustedTokenIssuerArn",
     "GUG274_JWT_ISSUER_URL": "JwtIssuerUrl",
     "GUG274_JWT_AUDIENCE": "JwtAudience",
+    "GUG274_OPERATOR_POLICY_MODE": "OperatorPolicyMode",
+    "GUG274_SINGLE_OWNER_AUTHORIZED_AT": "SingleOwnerAuthorizedAt",
+    "GUG274_SINGLE_OWNER_EXPIRES_AT": "SingleOwnerExpiresAt",
 }
+SINGLE_OWNER = {
+    "OperatorPolicyMode": "single_owner_v1",
+    "IdentityGrantVersion": "2",
+    "SecondPartyIdentityStoreUserId": "",
+    "SingleOwnerAuthorizedAt": "2026-09-16T00:00:00Z",
+    "SingleOwnerExpiresAt": "2026-09-16T12:00:00Z",
+} | JWT_METADATA
 
 
 @pytest.fixture(scope="module")
@@ -191,3 +201,82 @@ def test_published_versions_still_bind_the_signed_artifact(template, version_nam
     assert version["Properties"]["CodeSha256"] == {"Ref": "SignedAuthorityArtifactCodeSha256"}
     assert version["DeletionPolicy"] == "Retain"
     assert version["UpdateReplacePolicy"] == "Retain"
+
+
+def test_independent_default_still_rejects_empty_second_party(template):
+    assert not _rules_accept(template, {"SecondPartyIdentityStoreUserId": ""})
+
+
+def test_single_owner_v2_accepts_empty_second_party_with_owner_window(template):
+    assert _rules_accept(template, SINGLE_OWNER)
+    parameters = _parameters(template, SINGLE_OWNER)
+    assert parameters["OperatorPolicyMode"] == "single_owner_v1"
+    assert parameters["SecondPartyIdentityStoreUserId"] == ""
+    environment = template["Resources"]["PlanAuthorityFunction"]["Properties"]["Environment"]["Variables"]
+    assert environment["GUG274_OPERATOR_POLICY_MODE"] == {"Ref": "OperatorPolicyMode"}
+    assert environment["GUG274_SINGLE_OWNER_AUTHORIZED_AT"] == {"Ref": "SingleOwnerAuthorizedAt"}
+    assert environment["GUG274_SINGLE_OWNER_EXPIRES_AT"] == {"Ref": "SingleOwnerExpiresAt"}
+
+
+@pytest.mark.parametrize("missing", [
+    "JwtTrustedTokenIssuerArn",
+    "JwtIssuerUrl",
+    "JwtAudience",
+    "SingleOwnerAuthorizedAt",
+    "SingleOwnerExpiresAt",
+])
+def test_single_owner_rejects_incomplete_jwt_or_window(template, missing):
+    supplied = dict(SINGLE_OWNER)
+    if missing.startswith("Single"):
+        supplied[missing] = ""
+    else:
+        supplied[missing] = ""
+    assert not _rules_accept(template, supplied)
+
+
+def test_single_owner_rejects_populated_second_party(template):
+    assert not _rules_accept(
+        template,
+        SINGLE_OWNER | {"SecondPartyIdentityStoreUserId": "00000000-0000-4000-8000-000000000002"},
+    )
+
+
+def test_single_owner_rejects_identity_grant_version_1(template):
+    supplied = dict(SINGLE_OWNER)
+    supplied["IdentityGrantVersion"] = "1"
+    for name in JWT_METADATA:
+        supplied[name] = ""
+    assert not _rules_accept(template, supplied)
+
+
+def test_independent_rejects_single_owner_window_fields(template):
+    assert not _rules_accept(
+        template,
+        {
+            "OperatorPolicyMode": "independent",
+            "SingleOwnerAuthorizedAt": "2026-09-16T00:00:00Z",
+            "SingleOwnerExpiresAt": "2026-09-16T12:00:00Z",
+        },
+    )
+
+
+def test_approval_and_apply_proof_roles_bind_owner_when_single_owner(template):
+    approval = template["Resources"]["ApprovalIdentityProofRole"]
+    apply_role = template["Resources"]["ApplyIdentityProofRole"]
+    for role in (approval, apply_role):
+        statements = role["Properties"]["AssumeRolePolicyDocument"]["Statement"]
+        set_context = [s for s in statements if s.get("Sid", "").startswith("SetExact")]
+        assert len(set_context) == 1
+        user = set_context[0]["Condition"]["StringEquals"][
+            "sts:RequestContext/identitystore:UserId"
+        ]
+        assert user == {
+            "Fn::If": [
+                "SingleOwnerMode",
+                {"Ref": "PlanIdentityStoreUserId"},
+                {"Ref": "SecondPartyIdentityStoreUserId"},
+            ]
+        }
+    assert template["Conditions"]["SingleOwnerMode"] == {
+        "Fn::Equals": [{"Ref": "OperatorPolicyMode"}, "single_owner_v1"]
+    }

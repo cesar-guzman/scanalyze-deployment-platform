@@ -32,7 +32,7 @@ class TemplateLoader(yaml.SafeLoader):
 
 
 def _intrinsic(loader: TemplateLoader, suffix: str, node: yaml.Node) -> dict:
-    if suffix not in {"Ref", "Sub", "GetAtt", "Equals", "Not", "Join"}:
+    if suffix not in {"Ref", "Sub", "GetAtt", "Equals", "Not", "Join", "If"}:
         raise TemplateError("unreviewed template intrinsic")
     if isinstance(node, yaml.ScalarNode):
         value = loader.construct_scalar(node)
