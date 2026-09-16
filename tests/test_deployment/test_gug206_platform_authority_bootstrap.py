@@ -331,7 +331,7 @@ def _run_apply_until_execute(
     monkeypatch.setattr(
         module,
         "_read_identity_grant_json",
-        lambda descriptor: (
+        lambda descriptor, version="1": (
             "synthetic-one-shot-grant"
             if descriptor == 274
             else (_ for _ in ()).throw(AssertionError("unexpected grant descriptor"))
@@ -1712,7 +1712,7 @@ def test_plan_command_persists_only_the_exact_original_template_digest(
     monkeypatch.setattr(
         module,
         "_read_identity_grant_json",
-        lambda descriptor: (
+        lambda descriptor, version="1": (
             "synthetic-plan-grant"
             if descriptor == 274
             else (_ for _ in ()).throw(AssertionError("unexpected grant descriptor"))

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import importlib
+import importlib.abc
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
@@ -13,6 +16,8 @@ import types
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = Path("tooling/platform_authority_bootstrap_identity_grant.py")
 ENTRYPOINT = Path("scripts/deployment/platform-authority-bootstrap-identity-grant.py")
+OIDC_CLIENT = Path("tooling/platform_authority_bootstrap_oidc_client.py")
+JWT_GRANT = Path("tooling/platform_authority_bootstrap_jwt_grant.py")
 
 
 class PublicParser(argparse.ArgumentParser):
@@ -22,12 +27,60 @@ class PublicParser(argparse.ArgumentParser):
 
 
 def _install_source_only_importer() -> None:
+    if any(name == "tooling" or name.startswith("tooling.") for name in sys.modules):
+        raise ValueError("REPOSITORY_MODULE_PRELOADED")
     boundary = ROOT / "tooling/platform_authority_source_only_import.py"
     if boundary.is_symlink() or not boundary.is_file():
         raise ValueError
     namespace = {"__file__": str(boundary), "__name__": "_gug274_source_only_import_boundary"}
     exec(compile(boundary.read_bytes(), str(boundary), "exec"), namespace)
     namespace["install_repository_source_only_importer"](ROOT)
+
+
+class _VerifiedSnapshotFinder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    """Resolve only the closed set of authenticated tooling source bytes."""
+
+    def __init__(self, sources: dict[str, bytes]) -> None:
+        self.sources = types.MappingProxyType(dict(sources))
+
+    def find_spec(self, fullname, path=None, target=None):
+        del path, target
+        if fullname != "tooling" and not fullname.startswith("tooling."):
+            return None
+        relative = fullname.replace(".", "/")
+        package, module = relative + "/__init__.py", relative + ".py"
+        candidates = [name for name in (package, module) if name in self.sources]
+        if len(candidates) != 1:
+            raise ImportError("SNAPSHOT_MODULE_UNAVAILABLE")
+        spec = importlib.util.spec_from_loader(fullname, self, is_package=candidates[0] == package)
+        spec.loader_state = candidates[0]
+        return spec
+
+    def create_module(self, spec):
+        return None
+
+    def exec_module(self, module):
+        relative = module.__spec__.loader_state
+        module.__file__ = str(ROOT / relative)
+        exec(compile(self.sources[relative], module.__file__, "exec"), module.__dict__)
+
+
+def _install_verified_snapshot_importer(source_snapshot: dict[str, bytes], expected_paths: set[str]) -> None:
+    if (
+        type(source_snapshot) is not dict or set(source_snapshot) != expected_paths
+        or "tooling/__init__.py" not in source_snapshot
+        or any(type(name) is not str or type(value) is not bytes for name, value in source_snapshot.items())
+        or sum(map(len, source_snapshot.values())) > 4 * 1024 * 1024
+    ):
+        raise ValueError("SNAPSHOT_SOURCE_SET_INVALID")
+    finder = _VerifiedSnapshotFinder(source_snapshot)
+    # Bootstrap provenance imports may already be cached. Discard every tooling
+    # module so helper dependencies cannot retain an earlier filesystem import.
+    for name in tuple(sys.modules):
+        if name == "tooling" or name.startswith("tooling."):
+            del sys.modules[name]
+    sys.dont_write_bytecode = True
+    sys.meta_path.insert(0, finder)
 
 
 def main() -> int:
@@ -50,7 +103,10 @@ def main() -> int:
             PROVENANCE_PATHS, SOURCE_PATHS, closed_provenance_environment,
             resolve_trusted_executable, verify_clean_source_commit,
         )
-        if HELPER not in PROVENANCE_PATHS or ENTRYPOINT not in PROVENANCE_PATHS:
+        if (
+            HELPER not in PROVENANCE_PATHS or ENTRYPOINT not in PROVENANCE_PATHS
+            or OIDC_CLIENT not in PROVENANCE_PATHS or JWT_GRANT not in SOURCE_PATHS
+        ):
             raise ValueError
         def revalidate() -> None:
             verify_clean_source_commit(source_root=ROOT, source_commit=args.source_commit)
@@ -67,10 +123,9 @@ def main() -> int:
                     [str(git), "--no-replace-objects", "-c", "core.fsmonitor=false", "show", f"{args.source_commit}:{path.as_posix()}"],
                     cwd=ROOT, env=environment, check=True, capture_output=True, timeout=30,
                 ).stdout
-        helper = types.ModuleType("_gug274_verified_identity_grant")
-        helper.__file__ = str(ROOT / HELPER)
-        sys.modules[helper.__name__] = helper
-        exec(compile(source_snapshot[HELPER.as_posix()], helper.__file__, "exec"), helper.__dict__)
+        expected_paths = {path.as_posix() for path in (*SOURCE_PATHS, *PROVENANCE_PATHS) if path.suffix == ".py"}
+        _install_verified_snapshot_importer(source_snapshot, expected_paths)
+        helper = importlib.import_module("tooling.platform_authority_bootstrap_identity_grant")
         binding = helper.read_binding(args.binding, args.expected_binding_sha256)
         result = helper.launch(source_root=ROOT, source_snapshot=source_snapshot,
                                binding=binding, operation=args.operation,

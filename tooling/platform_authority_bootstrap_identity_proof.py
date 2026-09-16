@@ -1,6 +1,6 @@
 """Identity Center proof boundary for GUG-274 bootstrap artifact authority.
 
-The artifact-authority Lambdas receive a one-shot authorization-code grant,
+The artifact-authority Lambdas receive a one-shot, runtime-selected grant,
 exchange it for an opaque Identity Center context assertion, and ask STS to
 assume an operation-specific deny-all proof role.  The proof-role trust policy,
 not a caller-supplied identifier, binds the real Identity Store user.  No token,
@@ -18,7 +18,16 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Callable, Mapping, Protocol
 from urllib.parse import urlparse
 
-from tooling.platform_authority_bootstrap import BootstrapAuthorizationError
+from tooling.platform_authority_bootstrap import (
+    BootstrapAuthorizationError,
+    SingleOwnerPolicy,
+)
+from tooling.platform_authority_bootstrap_jwt_grant import (
+    JWT_BEARER_GRANT,
+    JwtBearerBinding,
+    JwtBearerGrant,
+    validate_claims,
+)
 from tooling.platform_authority_identity_context_pep import (
     IDENTITY_CENTER_CONTEXT_PROVIDER_ARN,
     REQUIRED_SCOPES,
@@ -27,6 +36,7 @@ from tooling.platform_authority_identity_context_pep import (
 
 
 PROOF_DOMAIN = "scanalyze.platform-authority.bootstrap.identity-proof.v1"
+SINGLE_OWNER_PROOF_DOMAIN = "scanalyze.platform-authority.bootstrap.identity-proof.v2"
 PROOF_BINDING_DOMAIN = (
     "scanalyze.platform-authority.bootstrap.identity-proof-binding.v1"
 )
@@ -70,6 +80,9 @@ PROOF_RECEIPT_FIELDS = frozenset(
         "proof_receipt_digest",
     }
 )
+SINGLE_OWNER_PROOF_RECEIPT_FIELDS = PROOF_RECEIPT_FIELDS | {
+    "authorization_mode", "independent_approval_present", "operator_policy_digest"
+}
 MAX_GRANT_BYTES = 12 * 1024
 STS_CLOCK_SKEW_SECONDS = 30
 
@@ -143,25 +156,42 @@ class BootstrapIdentityProofBinding:
     apply_proof_role_arn: str
     proof_duration_seconds: int = 900
     max_token_lifetime_seconds: int = 900
+    jwt_bearer: JwtBearerBinding | None = None
+    single_owner: SingleOwnerPolicy | None = None
 
     def __post_init__(self) -> None:
         if ACCOUNT_ID.fullmatch(self.authority_account_id) is None:
             raise BootstrapIdentityProofError("identity authority account is invalid")
         if REGION.fullmatch(self.region) is None:
             raise BootstrapIdentityProofError("identity authority region is invalid")
-        if (
-            USER_ID.fullmatch(self.plan_user_id) is None
-            or USER_ID.fullmatch(self.second_party_user_id) is None
-        ):
+        if not isinstance(self.plan_user_id, str) or USER_ID.fullmatch(self.plan_user_id) is None:
             raise BootstrapIdentityProofError("Identity Store user binding is invalid")
-        if self.plan_user_id.lower() == self.second_party_user_id.lower():
-            raise BootstrapIdentityProofError(
-                "Plan and Approval require distinct Identity Store users"
-            )
+        if self.single_owner is not None:
+            if (
+                type(self.single_owner) is not SingleOwnerPolicy
+                or self.authority_account_id != "042360977644"
+                or self.region != "us-east-1"
+                or self.second_party_user_id != ""
+                or self.jwt_bearer is None
+            ):
+                raise BootstrapIdentityProofError("single-owner identity binding is invalid")
+        else:
+            if not isinstance(self.second_party_user_id, str) or USER_ID.fullmatch(self.second_party_user_id) is None:
+                raise BootstrapIdentityProofError("Identity Store user binding is invalid")
+            if self.plan_user_id.lower() == self.second_party_user_id.lower():
+                raise BootstrapIdentityProofError(
+                    "Plan and Approval require distinct Identity Store users"
+                )
         if self.proof_duration_seconds != 900:
             raise BootstrapIdentityProofError("identity proof duration is invalid")
         if not 60 <= self.max_token_lifetime_seconds <= 900:
             raise BootstrapIdentityProofError("identity token lifetime is invalid")
+        if self.jwt_bearer is not None and (
+            not isinstance(self.jwt_bearer, JwtBearerBinding)
+            or self.jwt_bearer.authority_account_id != self.authority_account_id
+            or self.jwt_bearer.identity_center_instance_arn != self.identity_center_instance_arn
+        ):
+            raise BootstrapIdentityProofError("JWT issuer topology is not exact")
         parsed = urlparse(self.redirect_uri)
         try:
             parsed_port = parsed.port
@@ -221,29 +251,55 @@ class BootstrapIdentityProofBinding:
 
     @property
     def binding_digest(self) -> str:
-        return _domain_digest(
-            PROOF_BINDING_DOMAIN,
-            {
-                "authority_account_id": self.authority_account_id,
-                "region": self.region,
-                "identity_center_application_arn": self.identity_center_application_arn,
-                "identity_center_instance_arn": self.identity_center_instance_arn,
-                "identity_store_arn": self.identity_store_arn,
-                "redirect_uri": self.redirect_uri,
-                "plan_user_id": self.plan_user_id.lower(),
-                "second_party_user_id": self.second_party_user_id.lower(),
-                "plan_execution_role_arn": self.plan_execution_role_arn,
-                "approval_execution_role_arn": self.approval_execution_role_arn,
-                "apply_execution_role_arn": self.apply_execution_role_arn,
-                "plan_proof_role_arn": self.plan_proof_role_arn,
-                "approval_proof_role_arn": self.approval_proof_role_arn,
-                "apply_proof_role_arn": self.apply_proof_role_arn,
-                "proof_duration_seconds": self.proof_duration_seconds,
-                "max_token_lifetime_seconds": self.max_token_lifetime_seconds,
-            },
-        )
+        fields = {
+            "authority_account_id": self.authority_account_id,
+            "region": self.region,
+            "identity_center_application_arn": self.identity_center_application_arn,
+            "identity_center_instance_arn": self.identity_center_instance_arn,
+            "identity_store_arn": self.identity_store_arn,
+            "redirect_uri": self.redirect_uri,
+            "plan_user_id": self.plan_user_id.lower(),
+            "second_party_user_id": self.second_party_user_id.lower(),
+            "plan_execution_role_arn": self.plan_execution_role_arn,
+            "approval_execution_role_arn": self.approval_execution_role_arn,
+            "apply_execution_role_arn": self.apply_execution_role_arn,
+            "plan_proof_role_arn": self.plan_proof_role_arn,
+            "approval_proof_role_arn": self.approval_proof_role_arn,
+            "apply_proof_role_arn": self.apply_proof_role_arn,
+            "proof_duration_seconds": self.proof_duration_seconds,
+            "max_token_lifetime_seconds": self.max_token_lifetime_seconds,
+        }
+        domain = PROOF_BINDING_DOMAIN
+        if self.jwt_bearer is not None:
+            domain = "scanalyze.platform-authority.bootstrap.identity-proof-binding.v2"
+            fields["grant_type"] = JWT_BEARER_GRANT
+            fields["jwt_bearer_binding_digest"] = self.jwt_bearer.digest
+        if self.single_owner is not None:
+            domain = "scanalyze.platform-authority.bootstrap.identity-proof-binding.v3"
+            fields.update(self.single_owner.metadata())
+        return _domain_digest(domain, fields)
 
-    def proof_target(self, operation: str) -> tuple[str, str, str, str, str]:
+    def require_active(self, now: datetime) -> None:
+        if self.single_owner is not None:
+            try:
+                self.single_owner.require_active(now)
+            except BootstrapAuthorizationError:
+                raise BootstrapIdentityProofError("single-owner authorization is not active") from None
+
+    def proof_target(self, operation: str) -> tuple[str, str, str | None, str, str]:
+        if self.single_owner is not None and operation in ALLOWED_OPERATIONS:
+            role_kind = {
+                "plan": "plan_author",
+                "approval": "single_owner_review",
+                "apply": "apply_verifier",
+            }[operation]
+            return (
+                role_kind,
+                self.plan_user_id,
+                None,
+                getattr(self, f"{operation}_execution_role_arn"),
+                getattr(self, f"{operation}_proof_role_arn"),
+            )
         if operation == "plan":
             return (
                 "plan_author",
@@ -350,7 +406,7 @@ class BootstrapIdentityProofReceipt:
     role_kind: str
     identity_binding_digest: str
     expected_user_id_digest: str
-    peer_user_id_digest: str
+    peer_user_id_digest: str | None
     broker_execution_role_arn_digest: str
     proof_role_arn_digest: str
     proof_session_arn_digest: str
@@ -358,6 +414,7 @@ class BootstrapIdentityProofReceipt:
     managed_policy_digest: str
     required_action: str
     proof_expires_at: str
+    single_owner: SingleOwnerPolicy | None = None
 
     def to_dict(self) -> dict[str, Any]:
         value: dict[str, Any] = {
@@ -380,21 +437,31 @@ class BootstrapIdentityProofReceipt:
             "credentials_consumed": False,
             "live_effect_authorized": False,
         }
-        value["proof_receipt_digest"] = _domain_digest(PROOF_DOMAIN, value)
+        if self.single_owner is not None:
+            value["schema_version"] = "2"
+            value["domain_separator"] = SINGLE_OWNER_PROOF_DOMAIN
+            value.update(self.single_owner.metadata())
+        value["proof_receipt_digest"] = _domain_digest(value["domain_separator"], value)
         return value
 
 
 def validate_identity_proof_receipt(
     receipt: Mapping[str, Any], *, operation: str, now: datetime | None = None
 ) -> dict[str, Any]:
-    if type(receipt) is not dict or set(receipt) != PROOF_RECEIPT_FIELDS:
+    """Check receipt integrity; the caller must pin its binding and policy digests."""
+    if type(receipt) is not dict:
+        raise BootstrapIdentityProofError("identity proof receipt is not closed")
+    single_owner = receipt.get("schema_version") == "2"
+    fields = SINGLE_OWNER_PROOF_RECEIPT_FIELDS if single_owner else PROOF_RECEIPT_FIELDS
+    domain = SINGLE_OWNER_PROOF_DOMAIN if single_owner else PROOF_DOMAIN
+    if set(receipt) != fields:
         raise BootstrapIdentityProofError("identity proof receipt is not closed")
     if (
         operation not in ALLOWED_OPERATIONS
-        or receipt.get("schema_version") != "1"
+        or receipt.get("schema_version") != ("2" if single_owner else "1")
         or receipt.get("record_type")
         != "platform_authority_bootstrap_identity_proof"
-        or receipt.get("domain_separator") != PROOF_DOMAIN
+        or receipt.get("domain_separator") != domain
         or receipt.get("status") != "IDENTITY_CONTEXT_PROOF_VERIFIED"
         or receipt.get("operation") != operation
         or receipt.get("credentials_consumed") is not False
@@ -402,9 +469,17 @@ def validate_identity_proof_receipt(
         or receipt.get("required_action") != "sts:SetContext"
     ):
         raise BootstrapIdentityProofError("identity proof receipt metadata is invalid")
+    if single_owner and (
+        receipt.get("authorization_mode") != "single_owner_v1"
+        or receipt.get("independent_approval_present") is not False
+        or receipt.get("peer_user_id_digest") is not None
+        or type(receipt.get("operator_policy_digest")) is not str
+        or DIGEST.fullmatch(receipt["operator_policy_digest"]) is None
+    ):
+        raise BootstrapIdentityProofError("single-owner proof metadata is invalid")
     expected_role_kind = {
         "plan": "plan_author",
-        "approval": "independent_approver",
+        "approval": "single_owner_review" if single_owner else "independent_approver",
         "apply": "apply_verifier",
     }[operation]
     if receipt.get("role_kind") != expected_role_kind:
@@ -412,7 +487,6 @@ def validate_identity_proof_receipt(
     for field_name in (
         "identity_binding_digest",
         "expected_user_id_digest",
-        "peer_user_id_digest",
         "broker_execution_role_arn_digest",
         "proof_role_arn_digest",
         "proof_session_arn_digest",
@@ -420,8 +494,11 @@ def validate_identity_proof_receipt(
     ):
         if DIGEST.fullmatch(str(receipt.get(field_name, ""))) is None:
             raise BootstrapIdentityProofError("identity proof digest is invalid")
-    if receipt.get("expected_user_id_digest") == receipt.get("peer_user_id_digest"):
-        raise BootstrapIdentityProofError("identity proof users are not distinct")
+    if not single_owner:
+        if DIGEST.fullmatch(str(receipt.get("peer_user_id_digest", ""))) is None:
+            raise BootstrapIdentityProofError("identity proof digest is invalid")
+        if receipt.get("expected_user_id_digest") == receipt.get("peer_user_id_digest"):
+            raise BootstrapIdentityProofError("identity proof users are not distinct")
     expires_at = receipt.get("proof_expires_at")
     if (
         not isinstance(expires_at, str)
@@ -441,13 +518,13 @@ def validate_identity_proof_receipt(
     unsigned = {
         key: value for key, value in receipt.items() if key != "proof_receipt_digest"
     }
-    if claimed != _domain_digest(PROOF_DOMAIN, unsigned):
+    if claimed != _domain_digest(domain, unsigned):
         raise BootstrapIdentityProofError("identity proof receipt digest mismatch")
     return dict(receipt)
 
 
 class BootstrapIdentityProofVerifier:
-    """Exchange one code and validate one exact deny-all STS proof session."""
+    """Exchange the configured grant and verify one deny-all STS proof session."""
 
     def __init__(
         self,
@@ -467,9 +544,11 @@ class BootstrapIdentityProofVerifier:
         identity_grant: object,
         binding: BootstrapIdentityProofBinding,
         now: datetime,
+        operation_binding_digest: str | None = None,
     ) -> dict[str, Any]:
         if operation not in ALLOWED_OPERATIONS or now.tzinfo is None:
             raise BootstrapIdentityProofError("identity proof operation is invalid")
+        binding.require_active(now)
         compatibility = proof_compatibility_decision()
         (
             role_kind,
@@ -478,35 +557,60 @@ class BootstrapIdentityProofVerifier:
             execution_role_arn,
             proof_role_arn,
         ) = binding.proof_target(operation)
-        envelope = (
-            AuthorizationCodeGrant.from_json(identity_grant)
-            if isinstance(identity_grant, str)
-            else AuthorizationCodeGrant.from_mapping(identity_grant)
-        )
-        code, verifier = envelope.consume_once()
+        code = verifier = issuer_assertion = ""
         token_response: Mapping[str, Any] | None = None
         try:
-            try:
-                token_response = self._oidc.create_token_with_iam(
-                    clientId=binding.identity_center_application_arn,
-                    grantType=AUTHORIZATION_CODE_GRANT,
-                    code=code,
-                    codeVerifier=verifier,
-                    redirectUri=binding.redirect_uri,
-                    scope=list(REQUIRED_SCOPES),
+            if binding.jwt_bearer is not None:
+                if not isinstance(operation_binding_digest, str) or DIGEST.fullmatch(operation_binding_digest) is None:
+                    raise BootstrapIdentityProofError("JWT operation binding is unavailable")
+                jwt_envelope = (
+                    JwtBearerGrant.from_json(identity_grant)
+                    if isinstance(identity_grant, str)
+                    else JwtBearerGrant.from_mapping(identity_grant)
                 )
-            except Exception:
-                raise BootstrapIdentityProofError(
-                    "Identity Center code exchange is uncertain"
-                ) from None
-        finally:
-            code = ""
-            verifier = ""
-        try:
+                issuer_assertion = jwt_envelope.consume_once()
+                exchange_started_at = self._clock()
+                binding.require_active(exchange_started_at)
+                validate_claims(issuer_assertion, binding.jwt_bearer, operation_binding_digest, exchange_started_at)
+                try:
+                    # The configured AWS trusted issuer validates the signature.
+                    # Local claim parsing above never establishes identity proof.
+                    token_response = self._oidc.create_token_with_iam(
+                        clientId=binding.identity_center_application_arn,
+                        grantType=JWT_BEARER_GRANT,
+                        assertion=issuer_assertion,
+                        scope=list(REQUIRED_SCOPES),
+                    )
+                except Exception:
+                    raise BootstrapIdentityProofError("Identity Center JWT exchange is uncertain") from None
+                exchange_received_at = self._clock()
+                binding.require_active(exchange_received_at)
+                validate_claims(issuer_assertion, binding.jwt_bearer, operation_binding_digest, exchange_received_at)
+            else:
+                if operation_binding_digest is not None:
+                    raise BootstrapIdentityProofError("JWT operation binding is not enabled")
+                envelope = (
+                    AuthorizationCodeGrant.from_json(identity_grant)
+                    if isinstance(identity_grant, str)
+                    else AuthorizationCodeGrant.from_mapping(identity_grant)
+                )
+                code, verifier = envelope.consume_once()
+                try:
+                    token_response = self._oidc.create_token_with_iam(
+                        clientId=binding.identity_center_application_arn,
+                        grantType=AUTHORIZATION_CODE_GRANT,
+                        code=code,
+                        codeVerifier=verifier,
+                        redirectUri=binding.redirect_uri,
+                        scope=list(REQUIRED_SCOPES),
+                    )
+                except Exception:
+                    raise BootstrapIdentityProofError("Identity Center code exchange is uncertain") from None
             assertion = self._validate_token_response(
                 token_response, max_lifetime=binding.max_token_lifetime_seconds
             )
         finally:
+            code = verifier = issuer_assertion = ""
             if isinstance(token_response, dict):
                 details = token_response.get("awsAdditionalDetails")
                 if isinstance(details, dict):
@@ -519,6 +623,7 @@ class BootstrapIdentityProofVerifier:
         started_at = self._clock()
         sts_response: Mapping[str, Any] | None = None
         try:
+            binding.require_active(started_at)
             try:
                 sts_response = self._sts.assume_role(
                     RoleArn=proof_role_arn,
@@ -539,6 +644,7 @@ class BootstrapIdentityProofVerifier:
             assertion = ""
         received_at = self._clock()
         try:
+            binding.require_active(received_at)
             expiration, assumed_role_arn = self._validate_sts_response(
                 sts_response,
                 authority_account_id=binding.authority_account_id,
@@ -556,6 +662,11 @@ class BootstrapIdentityProofVerifier:
                     credentials.clear()
                 sts_response.clear()
 
+        completed_at = now
+        if binding.single_owner is not None:
+            completed_at = self._clock()
+            binding.require_active(completed_at)
+            expiration = min(expiration, binding.single_owner.end)
         receipt = BootstrapIdentityProofReceipt(
             operation=operation,
             role_kind=role_kind,
@@ -563,7 +674,7 @@ class BootstrapIdentityProofVerifier:
             expected_user_id_digest=_secret_digest(
                 "identity_store_user_id", expected_user.lower()
             ),
-            peer_user_id_digest=_secret_digest(
+            peer_user_id_digest=None if peer_user is None else _secret_digest(
                 "identity_store_user_id", peer_user.lower()
             ),
             broker_execution_role_arn_digest=_secret_digest(
@@ -577,9 +688,10 @@ class BootstrapIdentityProofVerifier:
             managed_policy_digest=compatibility.policy_digest,
             required_action=compatibility.required_action,
             proof_expires_at=_timestamp(expiration),
+            single_owner=binding.single_owner,
         ).to_dict()
         return validate_identity_proof_receipt(
-            receipt, operation=operation, now=now
+            receipt, operation=operation, now=completed_at
         )
 
     @staticmethod

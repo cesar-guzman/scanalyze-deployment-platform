@@ -283,7 +283,8 @@ def test_recovery_preflight_paginates_to_prove_global_change_set_absence(
 def test_normal_plan_rechecks_recovery_inventory_before_change_set_creation(
     bootstrap_module: ModuleType,
 ) -> None:
-    source = inspect.getsource(bootstrap_module._cmd_plan)
+    # Plan Change Set I/O lives in _create_plan_candidate; _cmd_plan only anchors.
+    source = inspect.getsource(bootstrap_module._create_plan_candidate)
 
     inventory_index = source.index(
         "_require_no_active_change_sets(client, binding.stack_name)"
