@@ -83,6 +83,9 @@ environment block applies the same values to all three versioned functions.
 | `JwtTrustedTokenIssuerArn` | `GUG274_JWT_TRUSTED_TOKEN_ISSUER_ARN` | Actual issuer ARN in the authority account and instance |
 | `JwtIssuerUrl` | `GUG274_JWT_ISSUER_URL` | Exact public HTTPS issuer identifier |
 | `JwtAudience` | `GUG274_JWT_AUDIENCE` | Exact reviewed public-client audience |
+| `OperatorPolicyMode` | `GUG274_OPERATOR_POLICY_MODE` | `independent` (default) or `single_owner_v1` |
+| `SingleOwnerAuthorizedAt` | `GUG274_SINGLE_OWNER_AUTHORIZED_AT` | Reviewed UTC start; empty unless `single_owner_v1` |
+| `SingleOwnerExpiresAt` | `GUG274_SINGLE_OWNER_EXPIRES_AT` | Reviewed UTC end (≤24h); empty unless `single_owner_v1` |
 
 The template defaults to v1 for historical compatibility. Its Rules reject
 partial v2 metadata and nonempty JWT metadata in v1. Runtime parsing validates
@@ -141,7 +144,9 @@ authority `042360977644`, `us-east-1`, destination `905418363887`. Configure the
 three immutable functions with `OperatorPolicyMode=single_owner_v1`, the same
 reviewed start/end as the operator binding, and `IdentityGrantVersion=2`.
 `PlanIdentityStoreUserId` is César's actual Identity Store reference;
-`SecondPartyIdentityStoreUserId` is empty. `cesar-guzman` is the required public
+`SecondPartyIdentityStoreUserId` is empty. The template Rules now enforce that
+pairing with `OperatorPolicyMode=single_owner_v1` and IdentityGrantVersion `2`;
+Approval/Apply proof roles bind the owner UserId via `Fn::If`. `cesar-guzman` is the required public
 operator label, not an authenticated user ID.
 
 Use the existing Plan, review and Apply operations and their separate scoped

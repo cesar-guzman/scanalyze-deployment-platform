@@ -1267,10 +1267,17 @@ def test_cfn_declares_exact_identity_cas_executor_and_supply_chain_boundaries() 
             "dynamodb:LeadingKeys": "false",
         }
 
-    for proof_role, user_parameter, execution_role in (
-        ("PlanIdentityProofRole", "PlanIdentityStoreUserId", "ScanalyzeGug274BootstrapPlanAuthority"),
-        ("ApprovalIdentityProofRole", "SecondPartyIdentityStoreUserId", "ScanalyzeGug274BootstrapApprovalAuthority"),
-        ("ApplyIdentityProofRole", "SecondPartyIdentityStoreUserId", "ScanalyzeGug274BootstrapApplyExecutor"),
+    owner_or_second_party_user_id = {
+        "If": [
+            "SingleOwnerMode",
+            {"Ref": "PlanIdentityStoreUserId"},
+            {"Ref": "SecondPartyIdentityStoreUserId"},
+        ]
+    }
+    for proof_role, user_id, execution_role in (
+        ("PlanIdentityProofRole", {"Ref": "PlanIdentityStoreUserId"}, "ScanalyzeGug274BootstrapPlanAuthority"),
+        ("ApprovalIdentityProofRole", owner_or_second_party_user_id, "ScanalyzeGug274BootstrapApprovalAuthority"),
+        ("ApplyIdentityProofRole", owner_or_second_party_user_id, "ScanalyzeGug274BootstrapApplyExecutor"),
     ):
         statements = resources[proof_role]["Properties"]["AssumeRolePolicyDocument"]["Statement"]
         context = next(statement for statement in statements if statement["Action"] == "sts:SetContext")
@@ -1281,7 +1288,7 @@ def test_cfn_declares_exact_identity_cas_executor_and_supply_chain_boundaries() 
             ]
         }
         assert condition["StringEquals"] == {
-            "sts:RequestContext/identitystore:UserId": {"Ref": user_parameter}
+            "sts:RequestContext/identitystore:UserId": user_id
         }
         assert set(condition["ArnEquals"]) == {
             "aws:PrincipalArn",
@@ -1447,7 +1454,7 @@ def test_template_renderer_real_cli_expands_aliases_without_semantic_changes(tmp
         if isinstance(value, dict):
             if len(value) == 1:
                 tag = next(iter(value))
-                if tag in {"Sub", "GetAtt", "Equals", "Not", "Join"}:
+                if tag in {"Sub", "GetAtt", "Equals", "Not", "Join", "If"}:
                     item = value[tag]
                     if tag == "GetAtt" and isinstance(item, str):
                         item = item.split(".", 1)
