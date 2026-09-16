@@ -2264,7 +2264,26 @@ def _unsigned_authority_package(
 
 
 def _synthetic_signed_archive(unsigned_archive: bytes) -> bytes:
-    return unsigned_archive + b"SYNTHETIC-AWS-SIGNER-METADATA"
+    """Model live AWSLambda-SHA384-ECDSA output: payload paths + META_INF suffix."""
+    from io import BytesIO
+    from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
+
+    out = BytesIO()
+    with ZipFile(BytesIO(unsigned_archive), mode="r") as src, ZipFile(
+        out, mode="w"
+    ) as dst:
+        for info in src.infolist():
+            dst.writestr(info, src.read(info.filename))
+        meta_dir = ZipInfo("META_INF/")
+        meta_dir.compress_type = ZIP_DEFLATED
+        dst.writestr(meta_dir, b"")
+        meta_sig = ZipInfo("META_INF/aws_signer_signature_v1.0.SF")
+        meta_sig.compress_type = ZIP_DEFLATED
+        dst.writestr(
+            meta_sig,
+            b"-----BEGIN PKCS7-----\nSYNTHETIC\n-----END PKCS7-----\n",
+        )
+    return out.getvalue()
 
 
 def _signing_job(
@@ -2482,6 +2501,71 @@ def test_repository_signer_pin_reaches_real_receipt_gate(profile_version: str) -
     assert "ABCDEFGHIJ" not in template["Parameters"]["AuthoritySigningProfileVersionId"]["AllowedValues"]
     assert "sha256:" + "0" * 64 not in template["Parameters"]["AuthoritySigningTrustRootContractDigest"]["AllowedValues"]
     assert receipt["production_status"] == "NO-GO"
+
+
+
+def test_validate_signed_archive_accepts_aws_lambda_signer_meta_inf_suffix() -> None:
+    unsigned = _unsigned_authority_package()
+    signed = _synthetic_signed_archive(unsigned.archive)
+    digest_hex, digest_b64 = signed_artifact_module._validate_signed_archive(
+        signed_archive=signed,
+        unsigned_manifest=unsigned.manifest,
+    )
+    assert digest_hex == hashlib.sha256(signed).hexdigest()
+    assert digest_b64 == base64.b64encode(hashlib.sha256(signed).digest()).decode(
+        "ascii"
+    )
+
+
+def test_validate_signed_archive_rejects_non_signer_extra_path() -> None:
+    from io import BytesIO
+    from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
+
+    unsigned = _unsigned_authority_package()
+    out = BytesIO()
+    with ZipFile(BytesIO(unsigned.archive), mode="r") as src, ZipFile(
+        out, mode="w"
+    ) as dst:
+        for info in src.infolist():
+            dst.writestr(info, src.read(info.filename))
+        extra = ZipInfo("NOT_SIGNER.txt")
+        extra.compress_type = ZIP_DEFLATED
+        dst.writestr(extra, b"nope")
+    with pytest.raises(
+        signed_artifact_module.BootstrapSignedArtifactError,
+        match="SIGNED_ARCHIVE_PATH_SET_INVALID",
+    ):
+        signed_artifact_module._validate_signed_archive(
+            signed_archive=out.getvalue(),
+            unsigned_manifest=unsigned.manifest,
+        )
+
+
+def test_validate_signed_archive_rejects_signer_suffix_out_of_order() -> None:
+    from io import BytesIO
+    from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
+
+    unsigned = _unsigned_authority_package()
+    out = BytesIO()
+    with ZipFile(BytesIO(unsigned.archive), mode="r") as src, ZipFile(
+        out, mode="w"
+    ) as dst:
+        meta_dir = ZipInfo("META_INF/")
+        meta_dir.compress_type = ZIP_DEFLATED
+        dst.writestr(meta_dir, b"")
+        meta_sig = ZipInfo("META_INF/aws_signer_signature_v1.0.SF")
+        meta_sig.compress_type = ZIP_DEFLATED
+        dst.writestr(meta_sig, b"-----BEGIN PKCS7-----\nx\n-----END PKCS7-----\n")
+        for info in src.infolist():
+            dst.writestr(info, src.read(info.filename))
+    with pytest.raises(
+        signed_artifact_module.BootstrapSignedArtifactError,
+        match="SIGNED_ARCHIVE_PATH_SET_INVALID",
+    ):
+        signed_artifact_module._validate_signed_archive(
+            signed_archive=out.getvalue(),
+            unsigned_manifest=unsigned.manifest,
+        )
 
 
 def test_signed_artifact_receipt_binds_only_signer_destination_bytes_to_cfn() -> None:
