@@ -298,13 +298,20 @@ local test. These checks are not a live IAM simulation.
 
 ## Concrete identity installation for the 17-resource stack
 
-The current template declares **21 parameters, including six NoEcho identity
-parameters**. Searching the public bootstrap templates, IAM policies and
-deployment/operations documentation found no current concrete GUG-274 application,
-instance/store, two-user or callback binding. Fixtures and synthetic examples
-were excluded as authority sources. The GUG-376 application contract is a
-different management-account, single-operator application with different actors;
-it cannot supply the normal GUG-274 two-human binding.
+The current template declares **28 parameters, including six NoEcho identity
+parameters**. Post-merge of `#117` (`6e08a144`), the public surface also includes
+`IdentityGrantVersion`, `OperatorPolicyMode`, `SingleOwnerAuthorizedAt`,
+`SingleOwnerExpiresAt`, `JwtTrustedTokenIssuerArn`, `JwtIssuerUrl`, and
+`JwtAudience`. Searching the public bootstrap templates, IAM policies and
+deployment/operations documentation still finds no installable concrete GUG-274
+JWT trusted-issuer ARN, audience, or owner UserId values for activation.
+Fixtures and synthetic examples were excluded as authority sources. The GUG-376
+application contract is a different management-account, single-operator
+application with different actors; it cannot supply the normal GUG-274 binding.
+For César's reviewed `single_owner_v1` path, see
+`docs/deployment/gug274-jwt-bearer-operator.md` and the offline placeholder draft
+`docs/deployment/gug274-single-owner-cfn-parameters-offline-draft.md` (placeholders
+only; no invented UserIds/TTI).
 
 The initial STS-verified management and 042 discovery reads showed only the
 organization instance owned by `839393571433`. The coordinator subsequently
@@ -322,8 +329,12 @@ The actual identity ARNs remain private, and no user attributes were requested.
 | `IdentityCenterInstanceArn` | Coordinator's new account-instance create response and exact ACTIVE/owner-042 DescribeInstance readback. The separate organization instance still supplies AWS-account permission sets. Preserve ARN privately. |
 | `IdentityStoreArn` | Actual application metadata when available, corroborated by the instance's `IdentityStoreId` and `OwnerAccountId`. Never prepend 042 to an unverified store ID. Preserve privately. |
 | `IdentityRedirectUri` | Operation explicitly selects `http://127.0.0.1:38271/callback`; the local receiver accepts only this URI. The single stage-3 Put attempt failed at the CLI and no grant was observed afterward, so this URI is not verified as installed configuration. |
-| `PlanIdentityStoreUserId` | Directory administrator's independently approved opaque ID for real human A in that exact store; no username/email search by this agent. Exact private application/account assignment readbacks corroborate access. |
-| `SecondPartyIdentityStoreUserId` | Independently approved opaque ID for a different real human B in the same store; B performs Approval and Apply with separate roles and fresh grants. A second login or newly created alias for A does not prove B. |
+| `PlanIdentityStoreUserId` | Directory administrator's independently approved opaque ID for the real owner (human A / César in `single_owner_v1`) in that exact store; no username/email search by this agent. Exact private application/account assignment readbacks corroborate access. Never invent or paste a UserId into Git. |
+| `SecondPartyIdentityStoreUserId` | **independent mode:** independently approved opaque ID for a different real human B in the same store; B performs Approval and Apply with separate roles and fresh grants. A second login or newly created alias for A does not prove B. **`single_owner_v1`:** must be the empty string; CFN Rules + Approval/Apply proof roles bind `PlanIdentityStoreUserId` via `Fn::If`. |
+| `IdentityGrantVersion` | `1` (legacy authorization_code path; historically rejected by the custom app) or `2` (JWT/TTI bearer). `single_owner_v1` requires `2`. |
+| `OperatorPolicyMode` | `independent` (default) or `single_owner_v1`. Owner-selected sole-operator mode is `single_owner_v1` for authority `042360977644` / destination `905418363887` only after connected acceptance. |
+| `SingleOwnerAuthorizedAt` / `SingleOwnerExpiresAt` | Reviewed UTC `YYYY-MM-DDTHH:MM:SSZ` window; empty in independent mode; required and ≤24h in `single_owner_v1`. Do not invent activation timestamps in public drafts. |
+| `JwtTrustedTokenIssuerArn` / `JwtIssuerUrl` / `JwtAudience` | Required nonempty under `IdentityGrantVersion=2`; empty under version `1`. App `apl-722313749a62e03b` remains DISABLED with historically empty Grants/TTI — do not enable/create issuer values without reviewed connected acceptance. |
 | `AuthorityArtifactBucket`, `AuthorityArtifactKey`, `AuthorityArtifactVersion` | Actual versioned Signer destination from the live signed-artifact receipt; the bucket must agree with the separately installed GUG-274 artifact foundation. Neither a template name nor a local ZIP establishes a VersionId. |
 | `SignedAuthorityArtifactCodeSha256`, `AuthoritySigningReceiptDigest` | Real collector output after exact job and versioned S3 byte readbacks; signed ZIP hash and domain-separated receipt digest, with action-time freshness intact. |
 | `AuthorityAccountId`, `DestinationAccountIds` | Owner-selected `042360977644` and `905418363887`; verify caller account before stack operations. |
