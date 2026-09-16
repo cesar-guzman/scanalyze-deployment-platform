@@ -77,6 +77,14 @@ MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
 MAX_S3_VERSION_PAGES = 100
 RECEIPT_TTL = timedelta(minutes=15)
 MAX_CLOCK_SKEW = timedelta(minutes=2)
+# Exact trailing namelist suffix emitted by AWS Lambda code signing
+# (platform AWSLambda-SHA384-ECDSA). Payload paths must still match
+# expected_paths exactly; only this suffix may follow.
+AWS_LAMBDA_SIGNER_ARCHIVE_SUFFIX = (
+    "META_INF/",
+    "META_INF/aws_signer_signature_v1.0.SF",
+)
+MAX_SIGNER_SIGNATURE_ENTRY_BYTES = 64 * 1024
 
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -453,6 +461,38 @@ def _single_signed_version(*, s3_client: Any, bucket: str, key: str) -> str:
     return _strict_version_id(versions[0].get("VersionId"))
 
 
+def _validate_aws_lambda_signer_metadata_entry(item: Any) -> None:
+    """Fail closed on anything except the reviewed AWS Signer META_INF shape."""
+    name = item.filename
+    unix_mode = item.external_attr >> 16
+    if (
+        item.flag_bits & 0x1
+        or unix_mode & 0o170000 == 0o120000
+        or item.compress_type not in (0, 8)
+        or item.compress_size > MAX_ARCHIVE_BYTES
+    ):
+        raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_ENTRY_UNSAFE")
+    if name == "META_INF/":
+        if item.file_size != 0:
+            raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_ENTRY_UNSAFE")
+        return
+    if name == "META_INF/aws_signer_signature_v1.0.SF":
+        if not 1 <= item.file_size <= MAX_SIGNER_SIGNATURE_ENTRY_BYTES:
+            raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_ENTRY_UNSAFE")
+        return
+    raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_PATH_SET_INVALID")
+
+
+def _signed_archive_payload_names(names: list[str], expected_paths: list[str]) -> list[str]:
+    """Return payload namelist if names match expected or expected+Signer suffix."""
+    suffix = list(AWS_LAMBDA_SIGNER_ARCHIVE_SUFFIX)
+    if names == expected_paths:
+        return names
+    if names == expected_paths + suffix:
+        return expected_paths
+    raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_PATH_SET_INVALID")
+
+
 def _validate_signed_archive(
     *, signed_archive: bytes, unsigned_manifest: Mapping[str, Any]
 ) -> tuple[str, str]:
@@ -487,10 +527,15 @@ def _validate_signed_archive(
             names = archive.namelist()
             if len(names) != len(set(names)):
                 raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_DUPLICATE_PATH")
-            if names != expected_paths:
-                raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_PATH_SET_INVALID")
+            payload_names = _signed_archive_payload_names(names, expected_paths)
             total = 0
             for item in archive.infolist():
+                if item.filename in AWS_LAMBDA_SIGNER_ARCHIVE_SUFFIX:
+                    _validate_aws_lambda_signer_metadata_entry(item)
+                    total += item.file_size
+                    if total > MAX_ARCHIVE_BYTES:
+                        raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_ENTRY_UNSAFE")
+                    continue
                 unix_mode = item.external_attr >> 16
                 expected_size = expected[item.filename].get("size_bytes")
                 if (item.flag_bits & 0x1 or unix_mode & 0o170000 == 0o120000
@@ -501,6 +546,8 @@ def _validate_signed_archive(
                 total += item.file_size
                 if total > MAX_ARCHIVE_BYTES:
                     raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_ENTRY_UNSAFE")
+            if payload_names != expected_paths:
+                raise BootstrapSignedArtifactError("SIGNED_ARCHIVE_PATH_SET_INVALID")
             for path, entry in expected.items():
                 payload = archive.read(path)
                 if (
