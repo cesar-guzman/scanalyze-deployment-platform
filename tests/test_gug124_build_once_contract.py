@@ -104,7 +104,31 @@ def test_legacy_publish_job_remains_terminal_no_go() -> None:
     rendered = json.dumps(publish)
     assert "Publication NO-GO" in rendered
     assert "aws-actions/configure-aws-credentials" not in rendered
-    assert "Production publication is authorized" in rendered
+    assert "exit 1" in rendered
+
+
+def test_legacy_publish_step_fails_without_external_commands(
+    tmp_path: pathlib.Path,
+) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/microservices-build.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    step = workflow["jobs"]["publish"]["steps"][0]
+    result = subprocess.run(
+        ["/bin/bash", "-c", step["run"]],
+        cwd=tmp_path,
+        env={"PATH": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "::error::Cloud publication is disabled" in result.stdout
+    assert result.stderr == ""
 
 
 def test_release_planning_inventory_cannot_authorize_promotion(tmp_path) -> None:
@@ -595,4 +619,3 @@ class TestBackwardCompatibility:
         for aid in ("identity-pre-token-lambda", "identity-control-processor-lambda", "scanalyze-frontend-ui"):
             assert aid in projection["runtime_artifacts"]
             assert projection["runtime_artifacts"][aid]["digest"].startswith("sha256:")
-

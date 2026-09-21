@@ -159,6 +159,13 @@ allowlist:
     reason: "GitHub Actions run id in ops notes; fingerprint pins the documented run only"
     owner: platform-security-docs
 
+  - path: docs/operations/production-validation-20260921.md
+    line_pattern: '^\[[^]]+\]\(https://github\.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/[0-9]{11}\)[.,]?\s*$'
+    pattern_id: NSS
+    match_sha256: 87cca55c8829c35f284d95b8e15d4db3601e45fc6be64e4c0a40c863c694fbcb,fb8dcc17379f23251d547e3fd906dd768e19edc25be42f2ea6f73bd6d5004f15,8e8ea3033dd66d54d7082443207e6a5285cc2a90f35415705488cfdf2df93408,5b1c170e851f60672f635214c5f8ad34110d3688d783f67b9476a28d01eeb5a9,7ef39dc6bb16b3bb0102f63893712011d2f97153ebb892de0faacec98fc3a30e,6f6d13b4be8be539a859c6f26bd20c7eb5d76213944fb8d81d1b6f5fdc6073ed,a88dfd61636c4f76a871c6b4670cc959feec50f2190e81d55e41f590ae1298c7
+    reason: "Seven public GitHub Actions run identifiers verified during GUG-421 review; exact URL line, file and value fingerprints exclude identity-document values"
+    owner: platform-security-docs
+
   - path: docs/operations/production-infrastructure-selection-runbook.md
     line_pattern: '"zone_id"\s*:\s*"ZSYNTHETIC[0-9]+"'
     pattern_id: RFC
