@@ -105,6 +105,8 @@ def test_legacy_route_dependencies_deny_user_and_local_principals() -> None:
 
 
 EXPECTED_ROUTE_POLICIES = {
+    ("GET", "/api/v1/analytics/docs"): frozenset({"read"}),
+    ("GET", "/api/v1/analytics/export-bank"): frozenset({"read", "admin"}),
     ("POST", "/api/v1/documents"): frozenset({"write"}),
     ("POST", "/api/v1/documents/{document_id}/submit"): frozenset({"write"}),
     ("GET", "/api/v1/documents/{document_id}"): frozenset({"read"}),

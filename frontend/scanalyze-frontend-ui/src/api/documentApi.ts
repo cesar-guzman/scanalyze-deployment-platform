@@ -73,8 +73,8 @@ export const documentApi = {
     return response.data;
   },
 
-  getDocumentResult: async (id: string): Promise<DocumentResultResponse> => {
-    const client = getApiClient();
+  getDocumentResult: async (id: string, expectedSubject?: string): Promise<DocumentResultResponse> => {
+    const client = getApiClient(expectedSubject);
     const headers = { 'X-Scanalyze-Contract-Version': 'scanalyze.document-journey.v1' };
     
     const response = await client.get<DocumentResultResponse>(`/v2/documents/${id}/result`, { headers });

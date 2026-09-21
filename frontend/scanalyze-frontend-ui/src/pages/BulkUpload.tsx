@@ -1,172 +1,34 @@
-import React, { useCallback, useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
-import { documentApi } from '../api/documentApi';
 import { batchApi } from '../api/batchApi';
-import type { BatchResponse } from '../api/batchApi';
-import { uploadFileToPresignedUrl } from '../api/uploadApi';
-
-interface UploadTask {
-  id: string;
-  file: File;
-  status: 'PENDING' | 'UPLOADING' | 'WAITING_SERVER' | 'SUCCESS' | 'ERROR';
-  progress: number;
-  errorMsg?: string;
-  documentId?: string;
-}
-
-const MAX_CONCURRENT_UPLOADS = 3;
+import { UPLOAD_ACCEPT } from '../domain/uploadTypes';
+import { useBulkUploadRecovery } from '../hooks/useBulkUploadRecovery';
 
 export const BulkUpload: React.FC = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [tasks, setTasks] = useState<UploadTask[]>([]);
-  const [batch, setBatch] = useState<BatchResponse | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-
-  // Overall batch state
-  const [batchStatus, setBatchStatus] = useState<'IDLE' | 'CREATING' | 'PROCESSING' | 'COMPLETED' | 'ERROR'>('IDLE');
-  const [batchErrorMsg, setBatchErrorMsg] = useState<string | null>(null);
+  const { tasks, batch, batchStatus, batchErrorMsg, recovering, addFiles, removeTask,
+    handleStartBatch, handleRetryFailed, handleNewBatch } = useBulkUploadRecovery();
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(true);
   };
-
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
   };
-
-  const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];
-  const ACCEPT_STRING = ALLOWED_TYPES.join(',');
-
-  const addFiles = (selectedFiles: FileList | File[]) => {
-    const newTasks: UploadTask[] = [];
-    Array.from(selectedFiles).forEach((file) => {
-      if (ALLOWED_TYPES.includes(file.type)) {
-        newTasks.push({
-          id: crypto.randomUUID(),
-          file,
-          status: 'PENDING',
-          progress: 0,
-        });
-      }
-    });
-
-    if (newTasks.length > 0) {
-      setTasks(prev => [...prev, ...newTasks]);
-    }
-  };
-
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      addFiles(e.dataTransfer.files);
-    }
+    if (e.dataTransfer.files?.length) void addFiles(e.dataTransfer.files);
   };
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      addFiles(e.target.files);
-    }
-  };
-
-  const removeTask = (id: string) => {
-    setTasks(prev => prev.filter(t => t.id !== id));
-  };
-
-  const updateTask = useCallback((id: string, updates: Partial<UploadTask>) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
-  }, []);
-
-  const processSingleTask = useCallback(async (task: UploadTask, currentBatchId: string) => {
-    updateTask(task.id, { status: 'WAITING_SERVER', progress: 0, errorMsg: undefined });
-    try {
-      // 1. Create Document
-      const idempotencyKey = crypto.randomUUID();
-      const createRes = await documentApi.createDocument(task.file, idempotencyKey, currentBatchId);
-
-      const documentId = createRes.durableResponse.documentId;
-      const instruction = createRes.uploadCapability;
-      updateTask(task.id, { documentId });
-
-      if (!instruction) {
-        throw new Error('El backend no respondió con instrucciones de subida.');
-      }
-
-      // 2. Upload to S3
-      updateTask(task.id, { status: 'UPLOADING' });
-      await uploadFileToPresignedUrl(task.file, instruction, (percent) => {
-        updateTask(task.id, { progress: percent });
-      });
-
-      // 3. Submit for Processing
-      updateTask(task.id, { status: 'WAITING_SERVER' });
-      await documentApi.submitDocument(documentId);
-
-      updateTask(task.id, { status: 'SUCCESS', progress: 100 });
-    } catch (err: unknown) {
-      let errorMsg = 'No fue posible procesar el documento.';
-      if (axios.isAxiosError(err)) {
-          errorMsg = 'Error de red S3 / API';
-      }
-      updateTask(task.id, { status: 'ERROR', errorMsg });
-    }
-  }, [updateTask]);
-
-  // Upload runner effect
-  useEffect(() => {
-    if (batchStatus !== 'PROCESSING') return;
-    if (!batch) return;
-
-    const pendingTasks = tasks.filter(t => t.status === 'PENDING');
-    const runningTasks = tasks.filter(t => t.status === 'UPLOADING' || t.status === 'WAITING_SERVER');
-
-    // Si terminamos de procesar todos
-    if (pendingTasks.length === 0 && runningTasks.length === 0) {
-      // This effect is the upload state-machine coordinator.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setBatchStatus('COMPLETED');
-      return;
-    }
-
-    // Spawn new tasks up to concurrency limit
-    const availableSlots = MAX_CONCURRENT_UPLOADS - runningTasks.length;
-    if (availableSlots > 0 && pendingTasks.length > 0) {
-      const tasksToStart = pendingTasks.slice(0, availableSlots);
-      tasksToStart.forEach(task => {
-        void processSingleTask(task, batch.batchId);
-      });
-    }
-  }, [tasks, batchStatus, batch, processSingleTask]);
-
-  const handleStartBatch = async () => {
-    if (tasks.length === 0) return;
-
-    try {
-      setBatchStatus('CREATING');
-      setBatchErrorMsg(null);
-      // Create batch
-      const newBatch = await batchApi.createBatch({
-        description: `Batch con ${tasks.length} archivos`
-      });
-      setBatch(newBatch);
-      setBatchStatus('PROCESSING');
-    } catch {
-      setBatchStatus('ERROR');
-      setBatchErrorMsg('Error creando el lote');
-    }
-  };
-
-  const handleRetryFailed = () => {
-    setTasks(prev => prev.map(t => t.status === 'ERROR' ? { ...t, status: 'PENDING', errorMsg: undefined, progress: 0 } : t));
-    setBatchStatus('PROCESSING');
+    if (e.target.files?.length) void addFiles(e.target.files);
   };
 
   const getOverallProgress = () => {
@@ -190,6 +52,23 @@ export const BulkUpload: React.FC = () => {
         <p className="text-slate-400 m-0 text-lg">Procesa decenas de archivos (PDF, JPG, PNG, TIFF) en paralelo asignados a un mismo lote.</p>
       </div>
 
+      {batchErrorMsg && <p role="alert" className="text-sm text-rose-400">{batchErrorMsg}</p>}
+      {recovering && batchStatus !== 'CREATING' && batchStatus !== 'PROCESSING' && (
+        <div className="glass-card p-4 flex flex-col gap-3">
+          <p role="status" className="text-sm text-slate-300">Este lote está guardado en esta pestaña. Recupera la misma operación; si falta un archivo, selecciona el original. El registro no guarda archivos ni nombres.</p>
+          {tasks.every(task => task.status === 'SUCCESS') ? (
+            <button onClick={handleNewBatch} className="btn-outline">Nuevo lote</button>
+          ) : (
+            <>
+              <label className="text-sm text-slate-300">Seleccionar originales
+                <input type="file" multiple accept={UPLOAD_ACCEPT} aria-label="Seleccionar originales" onChange={handleFileChange} />
+              </label>
+              <button onClick={handleRetryFailed} className="btn-outline">Recuperar lote</button>
+            </>
+          )}
+        </div>
+      )}
+
       {batchStatus === 'IDLE' && (
         <div
           onDragOver={handleDragOver}
@@ -210,7 +89,7 @@ export const BulkUpload: React.FC = () => {
           >
             Seleccionar Archivos
           </button>
-          <input type="file" multiple ref={fileInputRef} className="hidden" accept={ACCEPT_STRING} onChange={handleFileChange} />
+          <input type="file" multiple ref={fileInputRef} className="hidden" accept={UPLOAD_ACCEPT} onChange={handleFileChange} />
         </div>
       )}
 
@@ -243,7 +122,7 @@ export const BulkUpload: React.FC = () => {
                <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center justify-between">
                  <div className="flex items-center gap-3 text-emerald-400 font-medium">
                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                   Lote Finalizado
+                   Envíos confirmados
                  </div>
                  <div className="flex gap-3">
                    {totalFailed > 0 && (
@@ -321,8 +200,8 @@ export const BulkUpload: React.FC = () => {
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
                     </div>
                     <div className="truncate pr-2">
-                       <h5 className="m-0 text-sm font-medium text-slate-200 truncate" title={task.file.name}>{task.file.name}</h5>
-                       <span className="text-xs text-slate-500">{(task.file.size / 1024 / 1024).toFixed(2)} MB</span>
+                       <h5 className="m-0 text-sm font-medium text-slate-200 truncate" title={task.file?.name}>{task.file?.name ?? 'Archivo del lote guardado'}</h5>
+                       <span className="text-xs text-slate-500">{task.file ? `${(task.file.size / 1024 / 1024).toFixed(2)} MB` : 'Selecciona el original si se necesita subir'}</span>
                     </div>
                   </div>
 
@@ -341,7 +220,7 @@ export const BulkUpload: React.FC = () => {
                          {task.status === 'PENDING' && 'En cola...'}
                          {task.status === 'WAITING_SERVER' && 'Sincronizando con backend...'}
                          {task.status === 'UPLOADING' && `Subiendo ${task.progress}%`}
-                         {task.status === 'SUCCESS' && 'Completado'}
+                         {task.status === 'SUCCESS' && 'Envío confirmado'}
                          {task.status === 'ERROR' && 'Fallido'}
                       </span>
                     </div>

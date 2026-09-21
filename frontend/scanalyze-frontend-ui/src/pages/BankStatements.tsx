@@ -1,51 +1,66 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import axios from 'axios';
+import { Link } from 'react-router-dom';
+import { useAuth } from 'react-oidc-context';
 import { documentApi } from '../api/documentApi';
-import { batchApi } from '../api/batchApi';
-import type { BatchResponse } from '../api/batchApi';
-import { uploadFileToPresignedUrl } from '../api/uploadApi';
 import { getApiClient } from '../api/client';
 import { safeDownloadFilename } from '../security/browserBoundaries.js';
 import type { BankStatementData } from '../contracts/documentJourney.v1';
+import { UPLOAD_ACCEPT } from '../domain/uploadTypes';
+import { useBulkUploadRecovery } from '../hooks/useBulkUploadRecovery';
+import { requireUploadSession } from '../domain/uploadRecovery';
 
 /* ────────────────────────── Types ────────────────────────── */
-interface UploadTask {
-  id: string;
-  file: File;
-  status: 'PENDING' | 'UPLOADING' | 'WAITING_SERVER' | 'SUCCESS' | 'ERROR';
-  progress: number;
-  errorMsg?: string;
-  documentId?: string;
-}
-
 interface BankDoc {
   documentId: string;
   status: string;
-  filename?: string;
-  createdAt?: string;
-  batchId?: string;
-  docType?: string;
-  classificationRoute?: string;
+  filename?: string | null;
+  createdAt: string;
 }
 
-const MAX_CONCURRENT = 3;
-const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'];
+function historyPage(value: unknown): { documents: BankDoc[]; nextCursor: string | null } {
+  const page = value as { documents?: unknown; nextCursor?: unknown } | null;
+  if (!page || !Array.isArray(page.documents) || page.documents.length > 100
+      || !(page.nextCursor === null || (typeof page.nextCursor === 'string'
+        && page.nextCursor.length > 0 && page.nextCursor.length <= 4096))) {
+    throw new Error('INVALID_HISTORY_RESPONSE');
+  }
+  const documents = page.documents.map((value: unknown) => {
+    const doc = value as BankDoc | null;
+    if (!doc || typeof doc.documentId !== 'string' || !/^[0-9a-f]{32}$/.test(doc.documentId)
+        || typeof doc.status !== 'string' || !/^[A-Z_]{1,64}$/.test(doc.status)
+        || typeof doc.createdAt !== 'string' || !Number.isFinite(Date.parse(doc.createdAt))
+        || (doc.filename != null && (typeof doc.filename !== 'string' || doc.filename.length > 1024))) {
+      throw new Error('INVALID_HISTORY_RESPONSE');
+    }
+    return { documentId: doc.documentId, status: doc.status, createdAt: doc.createdAt, filename: doc.filename };
+  });
+  return { documents, nextCursor: page.nextCursor as string | null };
+}
 
 /* ────────────────────────── Page ────────────────────────── */
 export const BankStatements: React.FC = () => {
-  const navigate = useNavigate();
+  const subject = useAuth().user?.profile.sub;
+  // A principal change removes the previous principal's document views immediately.
+  return <BankStatementsForActor key={subject ?? 'signed-out'} subject={subject} />;
+};
+
+const BankStatementsForActor: React.FC<{ subject?: string }> = ({ subject }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   /* View state */
-  const [activeView, setActiveView] = useState<'upload' | 'list'>('upload');
+  const [activeView, setActiveView] = useState<'upload' | 'results' | 'list'>('upload');
 
-  /* Upload state */
-  const [tasks, setTasks] = useState<UploadTask[]>([]);
-  const [batch, setBatch] = useState<BatchResponse | null>(null);
+  /* Upload state shares the durable document journey with BulkUpload. */
   const [isDragging, setIsDragging] = useState(false);
-  const [batchStatus, setBatchStatus] = useState<'IDLE' | 'CREATING' | 'PROCESSING' | 'COMPLETED' | 'ERROR'>('IDLE');
-  const [batchErrorMsg, setBatchErrorMsg] = useState<string | null>(null);
+  const { tasks, batch, batchStatus, batchErrorMsg, recovering,
+    addFiles, removeTask, handleStartBatch, handleRetryFailed, handleNewBatch } = useBulkUploadRecovery();
+
+  const referencedTasks = tasks.filter(task => task.documentId);
 
   /* List & detail state */
   const [bankDocs, setBankDocs] = useState<BankDoc[]>([]);
@@ -56,84 +71,39 @@ export const BankStatements: React.FC = () => {
   const [txnFilter, setTxnFilter] = useState<'all' | 'credit' | 'debit'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
-
-  /* ──── Upload helpers (reuse BulkUpload pattern) ──── */
-  const addFiles = (selectedFiles: FileList | File[]) => {
-    const newTasks: UploadTask[] = [];
-    Array.from(selectedFiles).forEach(file => {
-      if (ALLOWED_TYPES.includes(file.type)) {
-        newTasks.push({ id: crypto.randomUUID(), file, status: 'PENDING', progress: 0 });
-      }
-    });
-    if (newTasks.length > 0) setTasks(prev => [...prev, ...newTasks]);
-  };
-
-  const updateTask = useCallback((id: string, u: Partial<UploadTask>) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...u } : t));
-  }, []);
-
-  const processSingleTask = useCallback(async (task: UploadTask, batchId: string) => {
-    updateTask(task.id, { status: 'WAITING_SERVER', progress: 0 });
-    try {
-      const ik = crypto.randomUUID();
-      const res = await documentApi.createDocument(task.file, ik, batchId);
-      const documentId = res.durableResponse.documentId;
-      updateTask(task.id, { documentId });
-      if (!res.uploadCapability) throw new Error('Sin instrucciones de subida.');
-      updateTask(task.id, { status: 'UPLOADING' });
-      await uploadFileToPresignedUrl(task.file, res.uploadCapability, p => updateTask(task.id, { progress: p }));
-      updateTask(task.id, { status: 'WAITING_SERVER' });
-      await documentApi.submitDocument(documentId);
-      updateTask(task.id, { status: 'SUCCESS', progress: 100 });
-    } catch (err: unknown) {
-      const errorMsg = axios.isAxiosError(err)
-        ? 'Error de red S3 / API'
-        : 'No fue posible procesar el documento.';
-      updateTask(task.id, { status: 'ERROR', errorMsg });
-    }
-  }, [updateTask]);
-
-  useEffect(() => {
-    if (batchStatus !== 'PROCESSING' || !batch) return;
-    const pending = tasks.filter(t => t.status === 'PENDING');
-    const running = tasks.filter(t => t.status === 'UPLOADING' || t.status === 'WAITING_SERVER');
-    if (pending.length === 0 && running.length === 0) {
-      // This effect is the upload state-machine coordinator.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setBatchStatus('COMPLETED');
-      return;
-    }
-    const slots = MAX_CONCURRENT - running.length;
-    if (slots > 0) pending.slice(0, slots).forEach(t => void processSingleTask(t, batch.batchId));
-  }, [tasks, batchStatus, batch, processSingleTask]);
-
-  const handleStartBatch = async () => {
-    if (tasks.length === 0) return;
-    try {
-      setBatchStatus('CREATING');
-      setBatchErrorMsg(null);
-      const newBatch = await batchApi.createBatch({ description: `Estados de Cuenta – ${tasks.length} archivos` });
-      setBatch(newBatch);
-      setBatchStatus('PROCESSING');
-    } catch {
-      setBatchStatus('ERROR');
-      setBatchErrorMsg('Error creando lote');
-    }
-  };
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [resultError, setResultError] = useState<string | null>(null);
+  const [csvError, setCsvError] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const historyRead = useRef(0);
+  const resultRead = useRef(0);
 
   /* ──── List tab ──── */
-  const fetchBankDocs = useCallback(async () => {
+  const fetchBankDocs = useCallback(async (cursor?: string) => {
+    const request = ++historyRead.current;
+    const live = () => mounted.current && historyRead.current === request;
     setLoadingDocs(true);
+    setHistoryError(null);
+    if (!cursor) { setBankDocs([]); setNextCursor(null); }
     try {
-      const client = getApiClient();
-      const resp = await client.get('/analytics/docs?classRoute=bank-extract');
-      const docs: BankDoc[] = resp.data?.documents || [];
-      setBankDocs(docs);
+      requireUploadSession(subject);
+      const client = getApiClient(subject);
+      const resp = await client.get('/analytics/docs', { params: { classRoute: 'bank-extract', limit: 50, cursor } });
+      if (!live()) return;
+      requireUploadSession(subject);
+      const page = historyPage(resp.data);
+      setBankDocs(previous => [...new Map((cursor ? [...previous, ...page.documents] : page.documents)
+        .map(doc => [doc.documentId, doc])).values()]);
+      setNextCursor(page.nextCursor);
     } catch {
+      if (!live()) return;
       setBankDocs([]);
+      setNextCursor(null);
+      setHistoryError('No se pudo consultar el historial. Verifica tu acceso e inténtalo de nuevo.');
+    } finally {
+      if (live()) setLoadingDocs(false);
     }
-    setLoadingDocs(false);
-  }, []);
+  }, [subject]);
 
   useEffect(() => {
     if (activeView === 'list') {
@@ -145,19 +115,33 @@ export const BankStatements: React.FC = () => {
 
   /* ──── Detail view ──── */
   const openDetail = async (doc: BankDoc) => {
+    const request = ++resultRead.current;
+    const live = () => mounted.current && resultRead.current === request;
     setSelectedDoc(doc);
     setResultData(null);
     setLoadingResult(true);
+    setResultError(null);
+    setCsvError(null);
     setTxnFilter('all');
     setCategoryFilter('all');
     setSearchTerm('');
     try {
-      const data = await documentApi.getDocumentResult(doc.documentId);
+      requireUploadSession(subject);
+      const data = await documentApi.getDocumentResult(doc.documentId, subject);
+      if (!live()) return;
+      requireUploadSession(subject);
+      if (data?.schemaVersion !== 'scanalyze.document-result.v1'
+          || data.contractVersion !== 'scanalyze.document-journey.v1'
+          || data.documentId !== doc.documentId || data.resultType !== 'bank_statement'
+          || !Array.isArray(data.data?.transactions)) throw new Error('INVALID_BANK_RESULT');
       setResultData(data.data);
     } catch {
+      if (!live()) return;
       setResultData(null);
+      setResultError('No se pudo consultar el resultado. Verifica tu acceso o vuelve a intentarlo.');
+    } finally {
+      if (live()) setLoadingResult(false);
     }
-    setLoadingResult(false);
   };
 
   /* ──── Computed ──── */
@@ -181,12 +165,19 @@ export const BankStatements: React.FC = () => {
 
   const handleDownloadCsv = async (docId: string) => {
     setDownloadingCsv(true);
+    setCsvError(null);
     try {
-      const client = getApiClient();
+      requireUploadSession(subject);
+      const client = getApiClient(subject);
       const res = await client.get('/analytics/export-bank', {
         params: { documentIds: docId },
         responseType: 'blob',
       });
+      if (!mounted.current) return;
+      requireUploadSession(subject);
+      if (!/^text\/csv(?:;|$)/i.test(String(res.headers['content-type'] ?? ''))) {
+        throw new Error('INVALID_BANK_EXPORT');
+      }
       const disposition = res.headers['content-disposition'] || '';
       const filenameMatch = disposition.match(/filename=([^;]+)/i);
       const fallback = `estado_cuenta_${docId.substring(0, 12)}.csv`;
@@ -203,9 +194,10 @@ export const BankStatements: React.FC = () => {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(objectUrl);
     } catch {
-      setBatchErrorMsg('No fue posible descargar el reporte CSV.');
+      if (mounted.current) setCsvError('No fue posible descargar el reporte CSV. Verifica tu acceso e inténtalo de nuevo.');
+    } finally {
+      if (mounted.current) setDownloadingCsv(false);
     }
-    setDownloadingCsv(false);
   };
 
   const fmtMoney = (v?: number | null, cur?: string | null) =>
@@ -229,8 +221,8 @@ export const BankStatements: React.FC = () => {
           <p className="text-slate-400 m-0 mt-2 text-base">Sube y analiza estados de cuenta de cualquier banco — México e internacional.</p>
         </div>
         <div className="flex gap-2">
-          {(['upload', 'list'] as const).map(v => (
-            <button key={v} onClick={() => { setActiveView(v); setSelectedDoc(null); }}
+          {(['upload', 'results', 'list'] as const).map(v => (
+            <button key={v} onClick={() => { ++resultRead.current; setActiveView(v); setSelectedDoc(null); }}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 ${
                 activeView === v
                   ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
@@ -239,7 +231,7 @@ export const BankStatements: React.FC = () => {
               {v === 'upload' ? (
                 <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>Subir</>
               ) : (
-                <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>Historial</>
+                <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>{v === 'results' ? 'Resultados del lote' : 'Historial'}</>
               )}
             </button>
           ))}
@@ -249,6 +241,22 @@ export const BankStatements: React.FC = () => {
       {/* ════════════════════ UPLOAD TAB ════════════════════ */}
       {activeView === 'upload' && (
         <div className="flex flex-col gap-6">
+          {batchErrorMsg && <p role="alert" className="text-sm text-rose-400">{batchErrorMsg}</p>}
+          {recovering && batchStatus !== 'CREATING' && batchStatus !== 'PROCESSING' && (
+            <div className="glass-card p-4 flex flex-col gap-3">
+              <p role="status" className="text-sm text-slate-300">El lote se conserva en esta pestaña. Recupera la misma operación y selecciona los archivos originales cuando se necesiten.</p>
+              {tasks.every(task => task.status === 'SUCCESS') ? (
+                <button onClick={handleNewBatch} className="btn-outline">Nuevo lote</button>
+              ) : (
+                <>
+                  <label className="text-sm text-slate-300">Seleccionar originales
+                    <input type="file" multiple accept={UPLOAD_ACCEPT} aria-label="Seleccionar originales" onChange={e => e.target.files && void addFiles(e.target.files)} />
+                  </label>
+                  <button onClick={handleRetryFailed} className="btn-outline">Recuperar lote</button>
+                </>
+              )}
+            </div>
+          )}
           {batchStatus === 'IDLE' && (
             <div onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
                  onDragLeave={e => { e.preventDefault(); setIsDragging(false); }}
@@ -265,7 +273,7 @@ export const BankStatements: React.FC = () => {
                 ))}
               </div>
               <button onClick={() => fileInputRef.current?.click()} className="btn-outline text-sm mt-2">Seleccionar Archivos</button>
-              <input type="file" multiple ref={fileInputRef} className="hidden" accept={ALLOWED_TYPES.join(',')} onChange={e => e.target.files && addFiles(e.target.files)} />
+              <input type="file" multiple ref={fileInputRef} className="hidden" accept={UPLOAD_ACCEPT} onChange={e => e.target.files && addFiles(e.target.files)} />
             </div>
           )}
 
@@ -274,22 +282,22 @@ export const BankStatements: React.FC = () => {
             <div className="glass-card p-6 flex flex-col gap-4">
               <div className="flex justify-between items-center">
                 <div>
-                  <h3 className="m-0 text-lg font-semibold text-slate-50">Procesando Estados de Cuenta</h3>
+                  <h3 className="m-0 text-lg font-semibold text-slate-50">Envío de estados de cuenta</h3>
                   {batch && <p className="text-xs text-slate-400 m-0 mt-1">Lote: {batch.batchId.substring(0, 12)}…</p>}
                 </div>
                 <div className="text-right">
                   <div className="text-2xl font-bold text-cyan-400">{getOverallProgress()}%</div>
-                  <div className="text-xs text-slate-400">{totalCompleted} ok · {totalFailed} error · {tasks.length} total</div>
+                  <div className="text-xs text-slate-400">{totalCompleted} confirmados · {totalFailed} por recuperar · {tasks.length} total</div>
                 </div>
               </div>
               <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
                 <div className="bg-gradient-to-r from-cyan-500 to-blue-500 h-full transition-all duration-300" style={{ width: `${getOverallProgress()}%` }} />
               </div>
               {batchErrorMsg && <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-md text-sm text-rose-400">{batchErrorMsg}</div>}
-              {batchStatus === 'COMPLETED' && (
+              {batch && (
                 <div className="flex gap-3 items-center mt-2">
-                  <button onClick={() => navigate(`/batch/${batch?.batchId}`)} className="btn-outline text-sm px-4 py-2 border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10">Ver Lote</button>
-                  <button onClick={() => { setActiveView('list'); fetchBankDocs(); }} className="btn-outline text-sm px-4 py-2 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10">Ver Resultados</button>
+                  <Link to={`/batch/${batch.batchId}`} className="btn-outline text-sm px-4 py-2 border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10">Ver lote</Link>
+                  <button onClick={() => setActiveView('results')} className="btn-outline text-sm px-4 py-2 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10">Ver Resultados</button>
                 </div>
               )}
             </div>
@@ -300,7 +308,7 @@ export const BankStatements: React.FC = () => {
             <div className="flex flex-col gap-3">
               <div className="flex justify-between items-center">
                 <h4 className="m-0 text-slate-200 font-medium">{tasks.length} archivo{tasks.length !== 1 ? 's' : ''}</h4>
-                {batchStatus === 'IDLE' && <button onClick={handleStartBatch} className="btn-primary text-sm px-5 py-2.5">🏦 Iniciar Procesamiento</button>}
+                {batchStatus === 'IDLE' && <button onClick={handleStartBatch} className="btn-primary text-sm px-5 py-2.5">Iniciar envío</button>}
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {tasks.map(t => (
@@ -311,16 +319,16 @@ export const BankStatements: React.FC = () => {
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
                         </div>
                         <div className="truncate pr-2">
-                          <h5 className="m-0 text-sm font-medium text-slate-200 truncate">{t.file.name}</h5>
-                          <span className="text-xs text-slate-500">{(t.file.size / 1024 / 1024).toFixed(2)} MB</span>
+                          <h5 className="m-0 text-sm font-medium text-slate-200 truncate">{t.file?.name ?? 'Archivo del lote guardado'}</h5>
+                          <span className="text-xs text-slate-500">{t.file ? `${(t.file.size / 1024 / 1024).toFixed(2)} MB` : 'Selecciona el original si se necesita subir'}</span>
                         </div>
                       </div>
-                      {batchStatus === 'IDLE' && <button onClick={() => setTasks(prev => prev.filter(x => x.id !== t.id))} className="text-slate-500 hover:text-slate-300 bg-transparent border-none cursor-pointer p-1">✕</button>}
+                      {batchStatus === 'IDLE' && <button onClick={() => removeTask(t.id)} className="text-slate-500 hover:text-slate-300 bg-transparent border-none cursor-pointer p-1">✕</button>}
                     </div>
                     {batchStatus !== 'IDLE' && (
                       <div>
                         <span className={`text-xs font-medium ${t.status === 'SUCCESS' ? 'text-emerald-400' : t.status === 'ERROR' ? 'text-rose-400' : 'text-cyan-400'}`}>
-                          {t.status === 'PENDING' && 'En cola…'}{t.status === 'WAITING_SERVER' && 'Sincronizando…'}{t.status === 'UPLOADING' && `Subiendo ${t.progress}%`}{t.status === 'SUCCESS' && '✓ Completado'}{t.status === 'ERROR' && '✕ Error'}
+                          {t.status === 'PENDING' && 'En cola…'}{t.status === 'WAITING_SERVER' && 'Sincronizando…'}{t.status === 'UPLOADING' && `Subiendo ${t.progress}%`}{t.status === 'SUCCESS' && '✓ Envío confirmado'}{t.status === 'ERROR' && '✕ Error'}
                         </span>
                         <div className="w-full bg-slate-800 rounded-full h-1 mt-1 overflow-hidden">
                           <div className={`h-full transition-all ${t.status === 'ERROR' ? 'bg-rose-500' : t.status === 'SUCCESS' ? 'bg-emerald-500' : 'bg-cyan-500'}`} style={{ width: `${t.progress}%` }} />
@@ -336,12 +344,44 @@ export const BankStatements: React.FC = () => {
         </div>
       )}
 
+      {/* References from the current actor's retained journal, not an account-wide history. */}
+      {activeView === 'results' && (
+        <section aria-label="Resultados del lote" className="glass-card p-6 flex flex-col gap-4">
+          <h3 className="m-0 text-xl font-semibold text-slate-100">Resultados del lote</h3>
+          <p className="m-0 text-sm text-slate-300">Estas referencias corresponden al lote conservado en esta pestaña. Abre cada documento para consultar su procesamiento y los resultados disponibles.</p>
+          <p className="m-0 text-sm text-slate-400">Consulta Historial para abrir resultados anteriores y exportar sus transacciones.</p>
+          {batchErrorMsg && <p role="alert" className="m-0 text-sm text-rose-400">{batchErrorMsg}</p>}
+          {batch && <Link to={`/batch/${batch.batchId}`} className="text-cyan-400 hover:text-cyan-300">Ver lote</Link>}
+          {referencedTasks.length > 0 ? (
+            <ul className="m-0 p-0 list-none flex flex-col gap-3">
+              {referencedTasks.map(task => (
+                <li key={task.id} className="rounded-lg border border-slate-700 p-4 flex flex-col gap-2">
+                  <Link to={`/document/${task.documentId}`} className="text-cyan-400 hover:text-cyan-300">
+                    {task.file?.name ?? `Documento ${task.documentId}`} — Ver documento
+                  </Link>
+                  <p className="m-0 text-xs text-slate-400">
+                    {task.status === 'SUCCESS' ? 'Envío confirmado. Consulta el documento para conocer el estado del procesamiento.' : 'Envío pendiente de confirmar. Consulta el documento o recupera el lote desde Subir.'}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="m-0 text-sm text-slate-400">
+              {batchErrorMsg ? 'No se pudieron confirmar las referencias guardadas. Recupera el lote desde Subir.'
+                : batch ? 'Las referencias aparecerán cuando se confirme la creación de cada documento.'
+                  : 'No hay un lote guardado en esta pestaña.'}
+            </p>
+          )}
+          <button onClick={() => setActiveView('upload')} className="btn-outline self-start">Volver a Subir</button>
+        </section>
+      )}
+
       {/* ════════════════════ LIST / DETAIL TAB ════════════════════ */}
       {activeView === 'list' && !selectedDoc && (
         <div className="flex flex-col gap-4">
           <div className="flex justify-between items-center">
             <h3 className="m-0 text-xl font-semibold text-slate-100">Documentos Bancarios Procesados</h3>
-            <button onClick={fetchBankDocs} disabled={loadingDocs} className="btn-outline text-xs px-3 py-1.5 border-cyan-500/40 text-cyan-400">
+            <button onClick={() => void fetchBankDocs()} disabled={loadingDocs} className="btn-outline text-xs px-3 py-1.5 border-cyan-500/40 text-cyan-400">
               {loadingDocs ? 'Cargando…' : '↻ Actualizar'}
             </button>
           </div>
@@ -351,12 +391,14 @@ export const BankStatements: React.FC = () => {
               <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin mr-3" />
               <span className="text-slate-400">Cargando estados de cuenta…</span>
             </div>
+          ) : historyError ? (
+            <p role="alert" className="text-sm text-rose-400">{historyError}</p>
           ) : bankDocs.length === 0 ? (
             <div className="glass-card p-12 text-center">
               <div className="w-16 h-16 rounded-2xl bg-slate-800 flex items-center justify-center mx-auto mb-4 border border-slate-700">
                 <svg className="w-8 h-8 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
               </div>
-              <p className="text-slate-400 mb-4">Aún no hay estados de cuenta bancarios procesados.</p>
+              <p className="text-slate-400 mb-4">{nextCursor ? 'No hay estados de cuenta en esta página. Continúa consultando el historial.' : 'No hay estados de cuenta en las páginas consultadas.'}</p>
               <button onClick={() => setActiveView('upload')} className="btn-outline text-sm px-4 py-2 border-cyan-500/40 text-cyan-400">Subir Estado de Cuenta</button>
             </div>
           ) : (
@@ -379,6 +421,9 @@ export const BankStatements: React.FC = () => {
               ))}
             </div>
           )}
+          {nextCursor && !historyError && (
+            <button onClick={() => void fetchBankDocs(nextCursor)} disabled={loadingDocs} className="btn-outline self-start">Cargar más</button>
+          )}
         </div>
       )}
 
@@ -386,7 +431,7 @@ export const BankStatements: React.FC = () => {
       {activeView === 'list' && selectedDoc && (
         <div className="flex flex-col gap-6">
           <div className="flex items-center justify-between w-full">
-            <button onClick={() => setSelectedDoc(null)} className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 transition-colors bg-transparent border-none cursor-pointer p-0">
+            <button onClick={() => { ++resultRead.current; setSelectedDoc(null); }} className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 transition-colors bg-transparent border-none cursor-pointer p-0">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               Volver a la lista
             </button>
@@ -406,6 +451,8 @@ export const BankStatements: React.FC = () => {
             )}
           </div>
 
+          {csvError && <p role="alert" className="text-sm text-rose-400">{csvError}</p>}
+
           {loadingResult ? (
             <div className="flex items-center justify-center py-16">
               <div className="w-8 h-8 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin mr-3" />
@@ -413,7 +460,7 @@ export const BankStatements: React.FC = () => {
             </div>
           ) : !resultData ? (
             <div className="glass-card p-12 text-center">
-              <p className="text-slate-400">No se encontró resultado de extracción para este documento.</p>
+              <p role="alert" className="text-slate-400">{resultError ?? 'El resultado de este documento no está disponible.'}</p>
               <Link to={`/document/${selectedDoc.documentId}`} className="text-cyan-400 text-sm mt-2 inline-block hover:text-cyan-300">Ver detalle del documento →</Link>
             </div>
           ) : (

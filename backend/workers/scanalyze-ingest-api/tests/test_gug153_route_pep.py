@@ -23,6 +23,8 @@ from app.main import app
 
 
 EXPECTED_ROUTE_OPERATIONS = {
+    ("GET", "/api/v1/analytics/docs"): "documents.read_metadata",
+    ("GET", "/api/v1/analytics/export-bank"): "exports.execute",
     ("POST", "/api/v1/documents"): "documents.create",
     ("POST", "/api/v1/documents/{document_id}/submit"): "documents.submit",
     ("GET", "/api/v1/documents/{document_id}"): "documents.read_metadata",
@@ -200,10 +202,10 @@ def test_operation_id_rejects_unmapped_operations_fail_closed() -> None:
         OperationId(None)  # type: ignore[arg-type]
 
 
-def test_all_41_protected_api_v1_routes_have_one_closed_operation_pep() -> None:
+def test_all_43_protected_api_v1_routes_have_one_closed_operation_pep() -> None:
     """A new or unmarked protected route must break the closed inventory."""
 
-    assert len(EXPECTED_ROUTE_OPERATIONS) == 41
+    assert len(EXPECTED_ROUTE_OPERATIONS) == 43
     actual: dict[tuple[str, str], str] = {}
 
     for route in v1_router.routes:
