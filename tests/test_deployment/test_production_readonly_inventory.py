@@ -266,7 +266,126 @@ def test_exact_requested_model_id_is_sent_and_rechecked():
     argv = fake.calls[-1][1]
     assert argv[argv.index("--model-id") + 1] == model_id
     assert report["checks"]["bedrock"]["status"] == "OBSERVED"
+    assert report["checks"]["bedrock"]["items"][0]["model_id"] == model_id
+    assert report["checks"]["bedrock"]["items"][0]["requested_model_id"] == model_id
     assert report["scope"]["filters"]["bedrock"]["exact_model_id"] == model_id
+
+
+def test_acm_observed_response_alias_preserves_raw_metadata_and_request_filter():
+    fake = FakeAws()
+    original = fake.payloads[("acm", "list-certificates")][0]
+    fake.payloads[("acm", "list-certificates")] = [
+        {**original, "key_algorithm": algorithm}
+        for algorithm in ("RSA_2048", "RSA-2048", "EC_secp384r1")
+    ]
+    report = _collect(fake)
+    assert report["status"] == "METADATA_OBSERVED"
+    assert [item["key_algorithm"] for item in report["checks"]["acm"]["items"]] == [
+        "RSA_2048", "RSA-2048", "EC_secp384r1",
+    ]
+    argv = next(argv for key, argv in fake.calls if key == ("acm", "list-certificates"))
+    key_types = json.loads(argv[argv.index("--includes") + 1])["keyTypes"]
+    assert key_types == list(inventory.ACM_KEY_TYPES)
+    assert "RSA-2048" not in key_types
+    assert report["scope"]["filters"]["acm"]["key_types"] == key_types
+    assert report["production_authorized"] is False
+    assert report["readiness"] == "NOT_EVALUATED"
+
+
+@pytest.mark.parametrize("algorithm", ["RSA-1024", "RSA-4096", "rsa-2048", "RSA_8192", None])
+def test_acm_unreviewed_response_aliases_remain_unknown(algorithm):
+    fake = FakeAws()
+    fake.payloads[("acm", "list-certificates")][0]["key_algorithm"] = algorithm
+    report = _collect(fake)
+    check = report["checks"]["acm"]
+    assert check["status"] == "UNKNOWN" and check["error_code"] == "RESPONSE_INVALID"
+    assert "items" not in check and report["status"] == "INCOMPLETE_METADATA"
+
+
+@pytest.mark.parametrize("region,account", [(REGION, "111111111111"), ("us-west-2", ACCOUNT)])
+def test_acm_response_alias_preserves_account_and_region_binding(region, account):
+    fake = FakeAws()
+    fake.payloads[("acm", "list-certificates")][0].update(
+        key_algorithm="RSA-2048", arn=f"arn:aws:acm:{region}:{account}:certificate/aaaa-bbbb",
+    )
+    report = _collect(fake)
+    check = report["checks"]["acm"]
+    assert check["status"] == "UNKNOWN" and check["error_code"] == "RESPONSE_INVALID"
+    assert "items" not in check and report["status"] == "INCOMPLETE_METADATA"
+
+
+def test_bedrock_observed_response_alias_preserves_requested_and_returned_ids():
+    fake = FakeAws()
+    fake.payloads[("bedrock", "get-foundation-model-availability")]["model_id"] = "amazon.nova-pro-v1"
+    report = _collect(fake)
+    assert report["status"] == "METADATA_OBSERVED"
+    item = report["checks"]["bedrock"]["items"][0]
+    assert item["model_id"] == "amazon.nova-pro-v1"
+    assert item["requested_model_id"] == "amazon.nova-pro-v1:0"
+    argv = fake.calls[-1][1]
+    assert argv[8:10] == ["bedrock", "get-foundation-model-availability"]
+    assert argv[argv.index("--model-id") + 1] == "amazon.nova-pro-v1:0"
+    assert report["scope"]["model_id"] == "amazon.nova-pro-v1:0"
+    assert report["scope"]["filters"]["bedrock"] == {
+        "exact_model_id": "amazon.nova-pro-v1:0", "invocation_performed": False,
+    }
+    assert report["production_authorized"] is False
+    assert report["readiness"] == "NOT_EVALUATED"
+
+
+@pytest.mark.parametrize("requested,returned", [
+    ("amazon.nova-pro-v1:0", "amazon.nova-lite-v1"),
+    ("amazon.nova-pro-v1:0", "amazon.nova-pro-v2"),
+    ("amazon.nova-pro-v1:0", "amazon.nova-pro-v1:1"),
+    ("amazon.nova-pro-v1:1", "amazon.nova-pro-v1"),
+    ("amazon.nova-lite-v1:0", "amazon.nova-lite-v1"),
+    ("amazon.nova-pro-v1", "amazon.nova-pro-v1:0"),
+    ("amazon.nova-pro-v1:0", "amazon.nova-pro-v1-extra"),
+    ("amazon.nova-pro-v1:0", None),
+])
+def test_bedrock_unreviewed_response_aliases_remain_unknown(requested, returned):
+    fake = FakeAws()
+    fake.payloads[("bedrock", "get-foundation-model-availability")]["model_id"] = returned
+    report = _collect(fake, model_id=requested)
+    check = report["checks"]["bedrock"]
+    assert check["status"] == "UNKNOWN" and check["error_code"] == "RESPONSE_INVALID"
+    assert "items" not in check and report["status"] == "INCOMPLETE_METADATA"
+    argv = fake.calls[-1][1]
+    assert argv[argv.index("--model-id") + 1] == requested
+
+
+@pytest.mark.parametrize("field,value", [
+    ("authorization_status", "NOT_AUTHORIZED"),
+    ("agreement_status", "NOT_AVAILABLE"),
+    ("agreement_status", "PENDING"),
+    ("agreement_status", "ERROR"),
+    ("entitlement_status", "NOT_AVAILABLE"),
+    ("region_status", "NOT_AVAILABLE"),
+])
+def test_bedrock_response_alias_preserves_unavailable_observations_without_readiness(field, value):
+    fake = FakeAws()
+    fake.payloads[("bedrock", "get-foundation-model-availability")].update(
+        model_id="amazon.nova-pro-v1", **{field: value},
+    )
+    report = _collect(fake)
+    check = report["checks"]["bedrock"]
+    assert check["status"] == "OBSERVED" and check["items"][0][field] == value
+    assert report["production_authorized"] is False
+    assert report["readiness"] == "NOT_EVALUATED"
+
+
+@pytest.mark.parametrize("field", [
+    "authorization_status", "agreement_status", "entitlement_status", "region_status",
+])
+def test_bedrock_response_alias_preserves_closed_availability_statuses(field):
+    fake = FakeAws()
+    fake.payloads[("bedrock", "get-foundation-model-availability")].update(
+        model_id="amazon.nova-pro-v1", **{field: "UNREVIEWED"},
+    )
+    report = _collect(fake)
+    check = report["checks"]["bedrock"]
+    assert check["status"] == "UNKNOWN" and check["error_code"] == "RESPONSE_INVALID"
+    assert "items" not in check and report["status"] == "INCOMPLETE_METADATA"
 
 
 def test_raw_deployment_id_roles_and_tables_match_actual_repository_naming():

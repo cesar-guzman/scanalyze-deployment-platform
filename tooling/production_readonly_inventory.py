@@ -23,9 +23,13 @@ ACM_KEY_TYPES = (
     "RSA_1024", "RSA_2048", "RSA_3072", "RSA_4096",
     "EC_prime256v1", "EC_secp384r1", "EC_secp521r1",
 )
+# Compatibility with one observed CLI response spelling, not an ACM request value.
+ACM_RESPONSE_KEY_ALGORITHMS = (*ACM_KEY_TYPES, "RSA-2048")
 # ACM's default omits other supported key algorithms:
 # https://docs.aws.amazon.com/cli/latest/reference/acm/list-certificates.html
 DEFAULT_MODEL_ID = "amazon.nova-pro-v1:0"
+# Only this observed availability response alias is accepted; no suffix stripping.
+BEDROCK_MODEL_RESPONSE_ALIASES = frozenset({("amazon.nova-pro-v1:0", "amazon.nova-pro-v1")})
 CALL_TIMEOUT_SECONDS = 45
 DEFAULT_MAX_KMS_KEYS = 50
 MAX_KMS_KEYS = 200
@@ -224,7 +228,7 @@ def collect_inventory(*, profile: str, region: str, expected_account_id: str,
     checks["acm"] = collector.check("acm", "list-certificates",
         "CertificateSummaryList[].{arn:CertificateArn,domain:DomainName,status:Status,key_algorithm:KeyAlgorithm}",
         lambda rows: _project(rows, {"arn": collector.arn("acm", r"certificate/[A-Za-z0-9-]+"),
-            "domain": _string, "status": _string, "key_algorithm": _enum(*ACM_KEY_TYPES)}),
+            "domain": _string, "status": _string, "key_algorithm": _enum(*ACM_RESPONSE_KEY_ALGORITHMS)}),
         "--includes", json.dumps({"keyTypes": list(ACM_KEY_TYPES)}, separators=(",", ":")))
     checks["route53"] = collector.check("route53", "list-hosted-zones",
         "HostedZones[].{id:Id,name:Name,private_zone:Config.PrivateZone}",
@@ -284,9 +288,9 @@ def collect_inventory(*, profile: str, region: str, expected_account_id: str,
             "agreement_status": _enum("AVAILABLE", "NOT_AVAILABLE", "PENDING", "ERROR"),
             "entitlement_status": _enum("AVAILABLE", "NOT_AVAILABLE"),
             "region_status": _enum("AVAILABLE", "NOT_AVAILABLE")})[0]
-        if result["model_id"] != model_id:
+        if result["model_id"] != model_id and (model_id, result["model_id"]) not in BEDROCK_MODEL_RESPONSE_ALIASES:
             raise ValueError("invalid metadata")
-        return [result]
+        return [{**result, "requested_model_id": model_id}]
 
     checks["bedrock"] = collector.check("bedrock", "get-foundation-model-availability",
         "{model_id:modelId,authorization_status:authorizationStatus,agreement_status:agreementAvailability.status,entitlement_status:entitlementAvailability,region_status:regionAvailability}",
