@@ -1,5 +1,9 @@
 # Monday production delivery
 
+For the current independent review and local corrective work, see
+[production validation — 2026-09-21](production-validation-20260921.md).
+The dated observations below remain historical evidence, not current readiness.
+
 Updated 2026-09-14 UTC (Monday after midnight in America/Mexico_City).
 Target: initial production use on Monday, 14 September 2026.
 
