@@ -311,16 +311,18 @@ test('the API interceptor rejects actor changes between journal persistence and 
   expect(JSON.parse((await journal(page))[0][1]).phase).toBe('CREATE_UNKNOWN');
 });
 
-for (const statusOverride of [
-  { lifecycle: 'UNSUPPORTED_STATE' },
-  { lifecycle: 'UPLOAD_PENDING', currentStage: 'INGEST', stageState: 'PENDING', processingCondition: 'ACTIVE', terminalAt: '2026-09-09T00:00:30Z' },
-  { lifecycle: 'PROCESSING', currentStage: 'INGEST', stageState: 'RUNNING', processingCondition: 'ACTIVE' },
-]) {
+for (const [statusOverride, expectedError] of [
+  // Malformed responses fail at the API boundary; a valid processing state is
+  // still rejected by the recovery policy. Neither can authorize another write.
+  [{ lifecycle: 'UNSUPPORTED_STATE' }, 'No se pudo confirmar la carga'],
+  [{ lifecycle: 'UPLOAD_PENDING', currentStage: 'INGEST', stageState: 'PENDING', processingCondition: 'ACTIVE', terminalAt: '2026-09-09T00:00:30Z' }, 'No se pudo confirmar la carga'],
+  [{ lifecycle: 'PROCESSING', currentStage: 'INGEST', stageState: 'RUNNING', processingCondition: 'ACTIVE' }, 'no permite continuar'],
+] as const) {
   test(`invalid status ${JSON.stringify(statusOverride)} cannot authorize a submit replay`, async ({ page }) => {
     const calls = await installScenario(page, { submitUnknown: true, statusOverride });
     await startUpload(page);
     await recover(page);
-    await expect(page.getByRole('alert')).toContainText('no permite continuar');
+    await expect(page.getByRole('alert')).toContainText(expectedError);
     expect(calls.createKeys).toHaveLength(1);
     expect(calls.upload).toBe(1);
     expect(calls.submit).toBe(1);

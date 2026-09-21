@@ -1,4 +1,5 @@
 import { getApiClient } from './client';
+import { parseDocumentResultResponse, parseDocumentStatusResponse } from '../domain/documentResponseValidation';
 import type { 
   DocumentCreateResponse, 
   DocumentStatusResponse, 
@@ -69,16 +70,16 @@ export const documentApi = {
     const client = getApiClient(expectedSubject);
     const headers = { 'X-Scanalyze-Contract-Version': 'scanalyze.document-journey.v1' };
     
-    const response = await client.get<DocumentStatusResponse>(`/v2/documents/${id}`, { headers });
-    return response.data;
+    const response = await client.get<unknown>(`/v2/documents/${id}`, { headers });
+    return parseDocumentStatusResponse(response.data, id);
   },
 
   getDocumentResult: async (id: string, expectedSubject?: string): Promise<DocumentResultResponse> => {
     const client = getApiClient(expectedSubject);
     const headers = { 'X-Scanalyze-Contract-Version': 'scanalyze.document-journey.v1' };
     
-    const response = await client.get<DocumentResultResponse>(`/v2/documents/${id}/result`, { headers });
-    return response.data;
+    const response = await client.get<unknown>(`/v2/documents/${id}/result`, { headers });
+    return parseDocumentResultResponse(response.data, id);
   },
 
   listDocumentArtifacts: async (id: string): Promise<DocumentArtifactsResponse> => {
