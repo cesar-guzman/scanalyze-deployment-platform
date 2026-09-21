@@ -127,3 +127,59 @@ def test_repository_scan_has_no_unallowlisted_findings(monkeypatch):
         security_sentinel.main()
 
     assert completed.value.code == 0
+
+
+# These are public GitHub Actions identifiers, never identity-document values.
+PUBLIC_VALIDATION_RUNS = (
+    "35285451823",
+    "34495798769",
+    "34496159838",
+    "34497827861",
+    "34497913910",
+    "35553633763",
+    "35553633747",
+)
+VALIDATION_REPORT = Path("docs/operations/production-validation-20260921.md")
+RUN_URL_PREFIX = "https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/"
+
+
+@pytest.mark.parametrize("run_id", PUBLIC_VALIDATION_RUNS)
+def test_public_validation_run_exception_accepts_only_pinned_metadata(run_id):
+    allowlist = load_allowlist(Path(__file__).resolve().parents[2] / "sentinel_allowlist.yaml")
+    line = f"[Workflow run]({RUN_URL_PREFIX}{run_id})."
+    assert is_allowlisted(
+        VALIDATION_REPORT, "NSS", line, sha256(run_id.encode()).hexdigest(), allowlist
+    )
+
+
+@pytest.mark.parametrize("mutation", ["value", "path", "context", "detector", "repository"])
+def test_public_validation_run_exception_rejects_unreviewed_context(mutation):
+    allowlist = load_allowlist(Path(__file__).resolve().parents[2] / "sentinel_allowlist.yaml")
+    run_id = PUBLIC_VALIDATION_RUNS[0]
+    path = VALIDATION_REPORT
+    detector = "NSS"
+    line = f"[Workflow run]({RUN_URL_PREFIX}{run_id})."
+    if mutation == "value":
+        run_id = "00000000000"  # Synthetic unmatched value, not a public run.
+        line = f"[Workflow run]({RUN_URL_PREFIX}{run_id})."
+    elif mutation == "path":
+        path = Path("docs/operations/unreviewed.md")
+    elif mutation == "context":
+        line = f"identity_id={run_id}"
+    elif mutation == "detector":
+        detector = "RFC"
+    else:
+        line = line.replace("/cesar-guzman/", "/unreviewed-owner/")
+    assert not is_allowlisted(
+        path, detector, line, sha256(run_id.encode()).hexdigest(), allowlist
+    )
+
+
+def test_public_validation_run_exception_has_exact_fingerprint_set():
+    allowlist = load_allowlist(Path(__file__).resolve().parents[2] / "sentinel_allowlist.yaml")
+    entries = [entry for entry in allowlist if entry["path"] == VALIDATION_REPORT.as_posix()]
+    assert len(entries) == 1
+    assert entries[0]["pattern_id"] == "NSS"
+    assert entries[0]["_match_hashes"] == {
+        sha256(run_id.encode()).hexdigest() for run_id in PUBLIC_VALIDATION_RUNS
+    }

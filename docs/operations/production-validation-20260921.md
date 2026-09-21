@@ -3,7 +3,9 @@
 **PRODUCTION NO-GO.** This assessment found and repaired local release-workflow
 defects. It does not certify a deployed application or a connected document
 journey. The implementation is tracked by [GUG-421](https://linear.app/guguce/issue/GUG-421/repair-express-production-offline-admission-and-fail-closed),
-a child of GUG-124. Commit, push, a new PR and hosted checks remain pending.
+a child of GUG-124. [Draft PR #121](https://github.com/cesar-guzman/scanalyze-deployment-platform/pull/121)
+is published at `9248a441caa209c3335f4b206aa13705e66e6518`; hosted CI is blocked
+and human review remains required. The follow-up documented below is local only.
 
 ## Source custody and attribution
 
@@ -11,7 +13,8 @@ Repository: `cesar-guzman/scanalyze-deployment-platform`.
 The latest observed main snapshot is
 `2effaa39268a90d1ea54d1e5fce3524a9ca0537c`, corroborated by
 [PR #120](https://github.com/cesar-guzman/scanalyze-deployment-platform/pull/120)
-and [main run 35285451823](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/35285451823).
+and the corresponding
+[main workflow run](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/35285451823).
 Direct main-branch and protection API queries were rejected by automatic
 approval review. This is a corroborated snapshot, not certification of current
 protection settings.
@@ -45,12 +48,43 @@ Linear gates, not every historical issue or every possible code path.
 
 Each PR #109–#120 has eight successful checks and two skipped checks in the
 readback. The skipped service matrix and publication job do not establish an
-image build or publication. The four Express runs are 34495798769, 34496159838,
-34497827861 and [34497913910](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/34497913910),
-all at `16dec52b2522e80f2a85ad9551ee3a0cdafbb4a8`, all `startup_failure`.
+image build or publication. The four Express runs are
+[Express dispatch one](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/34495798769),
+[Express dispatch two](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/34496159838),
+[Express dispatch three](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/34497827861),
+[Express dispatch four](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/34497913910).
+All ran at `16dec52b2522e80f2a85ad9551ee3a0cdafbb4a8`, all `startup_failure`.
 The last run returned no jobs. The nested permission mismatch below is a
 reproduced source defect and likely cause; a remote failure annotation was not
 retrieved.
+
+PR #121 publication readback verified all eleven committed file SHA-256 values
+against the reviewed packet and a clean worktree. The initial hosted snapshot
+had twelve successful checks, two failures, Python still running and publication
+skipped. Terraform, seven service validation jobs and frontend reproducibility
+passed. Successful service jobs do not independently prove image construction;
+their build steps may skip when the corresponding inputs are absent.
+Security sentinel failed in the
+[PR validation run](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/35553633763).
+Release dry-run failed in the
+[reproducibility run](https://github.com/cesar-guzman/scanalyze-deployment-platform/actions/runs/35553633747).
+Both annotations report exit 2. The latter target depends on `security-check`,
+so a shared cause is plausible but not proven by step metadata. Downstream
+checks skipped after the sentinel failure, including frontend E2E, did not pass.
+
+Source inspection identified public eleven-digit run identifiers in this report
+that match the sentinel's NSS rule. The follow-up uses the existing exact
+allowlist mechanism: one report path, one complete repository-specific URL
+line, the NSS detector and seven pinned value fingerprints. It preserves all
+run links, scanner detectors and CI gates. Thirteen in-memory metadata contract
+cases cover accepted identifiers and rejection of new values, other files,
+non-URL context, other detectors and other repositories. Before the exception,
+eight cases failed and five passed; afterward all thirteen passed, including an
+independent rerun. `make docs-check` and `git diff --check` also passed. These
+metadata tests do not scan repository content.
+The local scanner diagnostic was rejected by automatic approval review for
+possible sensitive-file/environment access and was not retried. The complete
+sentinel and release dry-run still need hosted confirmation after publication.
 
 ## Findings and local remediation
 
@@ -200,9 +234,34 @@ No earlier approval window was reused.
 
 The user authorized profile `905418363887_ScanalyzeSandboxDeploy`, account
 `905418363887`, region `us-east-1`, for read-only inspection. The first STS call
-failed because SSO expired. No inventory or deployment followed that failure;
-the user was asked to renew SSO. Current AWS resources and permissions are
-therefore unverified in this assessment.
+failed because SSO expired. After renewal, STS verified the expected account.
+The committed `tooling.production_readonly_inventory` collected fixed-query
+metadata between `2026-09-21T02:17:55Z` and `2026-09-21T02:18:07Z`. Its private
+local artifact is `production-metadata.json` in the assessment artifact directory,
+outside Git. It remains `INCOMPLETE_METADATA`, not an accepted complete report.
+
+- ECS returned no cluster ARNs in the authorized region.
+- Scanalyze-name/alias filtered ECR, S3, DynamoDB, IAM, CloudFront and log-group
+  metadata returned empty lists. Filters are discovery hints, not proof that
+  unrelated names or resources in other regions do not exist.
+- Route53 returned the public `prod.scanalyze.cloud` zone. CloudFormation
+  returned one active unrelated scheduler stack and no Scanalyze stack.
+- Four KMS keys were AWS-managed and enabled. SSM exposed 29 parameter names,
+  types and versions; no values were requested. Parameter metadata does not
+  establish existence or health of the referenced resources.
+- ACM and Bedrock were `UNKNOWN / RESPONSE_INVALID`. Supplemental metadata-only
+  queries observed an issued `api.scanalyze.cloud` certificate with algorithm
+  `RSA-2048`, and authorized/available Nova Pro metadata for response model ID
+  `amazon.nova-pro-v1`. The collector expects `RSA_2048` and exact request ID
+  `amazon.nova-pro-v1:0`. These response-contract mismatches require a separate
+  tested repair; the original report was not rewritten as successful. Certificate
+  issuance does not prove routing or served TLS, and model availability does not
+  prove invocation or an operational document pipeline.
+
+Commands used: explicit-profile/region STS, the committed read-only inventory
+with `--expected-account-id`, ACM `list-certificates` and Bedrock
+`get-foundation-model-availability`, with fixed metadata projections. No cloud
+mutation, parameter value, object content, log event or document was accessed.
 
 Public DNS at `2026-09-21T00:50:00Z` returned four AWS nameservers for
 `prod.scanalyze.cloud` and no A/AAAA answers for that name or `api.scanalyze.cloud`.
@@ -215,21 +274,26 @@ retrieval, restore, alarms and rollback still need connected acceptance.
 No customer document was used. The local optional passkey ownership path and
 enrollment serializer do not establish an installed enrollment broker.
 
-Next sequence: publish the reviewed source through ordinary PR/CI gates; integrate
-remaining candidate fixes issue by issue; renew scoped identities and collect
-fresh metadata; bind signed release and protected execution inputs; review the
+Next sequence: repair and confirm PR checks through ordinary review/CI gates;
+integrate remaining candidate fixes issue by issue; repair the metadata response
+contracts and collect fresh complete metadata; bind signed release and protected
+execution inputs; review the
 exact production command; then execute the separately authorized deployment and
 connected acceptance. None of these gates may be replaced by local test counts.
 
 ## Changes, risk and rollback
 
 No cloud resource, DNS record, database, queue, deployment or release was changed.
-Local edits are limited to GUG-421 workflow/schema/tests and this documentation.
+Local edits are limited to GUG-421 workflow/schema/tests, exact documented
+sentinel exceptions and this documentation.
 Linear was updated with the scoped implementation and remaining validation gaps.
-There was no commit, push, merge or workflow dispatch.
+The owner committed and pushed the reviewed packet and created draft PR #121.
+The subsequent documentation/allowlist follow-up remains uncommitted. No merge,
+manual workflow dispatch, artifact publication or deployment was performed.
 
-Risk: the new offline workflow still needs hosted CI confirmation and backend-free
-Terraform validation on GitHub. It does not grant production live capability.
+Risk: the new offline workflow still needs complete hosted CI confirmation;
+Terraform validation passed, but two required checks failed. It does not grant
+production live capability.
 The legacy publication job intentionally fails when selected until its protected
 publisher exists. No Terraform resource definition changed, and no plan/apply ran.
 
