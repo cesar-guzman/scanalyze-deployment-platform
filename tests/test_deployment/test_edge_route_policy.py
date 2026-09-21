@@ -28,6 +28,8 @@ SELECTED = [
     ("POST", "/api/v2/operations/{operation}/reconciliation", ["batches.create", "documents.create"], "write"),
     ("POST", "/api/v1/admin/invitations", ["authorization_administration.invitations.create"], "admin"),
     ("GET", "/api/v1/admin/roles", ["authorization_administration.roles.read"], "read"),
+    ("GET", "/api/v1/analytics/docs", ["documents.read_metadata"], "read"),
+    ("GET", "/api/v1/analytics/export-bank", ["exports.execute"], "read"),
 ]
 
 
@@ -72,11 +74,19 @@ def assert_rejected(result):
     assert result.stderr.strip() == "EDGE_ROUTE_POLICY_REJECTED"
 
 
-def test_real_inventory_preserves_52_routes_48_metadata_and_reconciliation(source):
+def test_real_inventory_preserves_54_routes_50_protected_and_reconciliation(source):
     inventory, requirements, _ = verifier.inspect_sources(source)
-    assert len(inventory) == 52
-    assert sum(bool(row["operation_ids"]) for row in inventory) == 48
+    assert len(inventory) == 54
+    assert sum(bool(row["operation_ids"]) for row in inventory) == 50
     assert len(requirements) == 30
+    assert {
+        (row["method"], row["path"]): row["operation_ids"]
+        for row in inventory
+        if row["path"] in {"/api/v1/analytics/docs", "/api/v1/analytics/export-bank"}
+    } == {
+        ("GET", "/api/v1/analytics/docs"): ["documents.read_metadata"],
+        ("GET", "/api/v1/analytics/export-bank"): ["exports.execute"],
+    }
     assert next(row for row in inventory if "reconciliation" in row["path"])["operation_ids"] == ["batches.create", "documents.create"]
     assert {row["path"] for row in inventory if not row["operation_ids"]} == {
         "/health", "/api/v1/health", "/api/v1/auth/passkey/initiate", "/api/v1/auth/passkey/respond",
@@ -154,7 +164,12 @@ def test_caller_cannot_supply_a_permissive_schema(source, tmp_path):
     assert result.returncode == 2 and result.stdout == ""
 
 
-@pytest.mark.parametrize("index,scope,accepted", [(0, "admin", True), (0, "write", False), (1, "admin", False), (2, "admin", False), (3, "read", False), (4, "read", False), (4, "admin", True)])
+@pytest.mark.parametrize("index,scope,accepted", [
+    (0, "admin", True), (0, "write", False), (1, "admin", False),
+    (2, "admin", False), (3, "read", False), (4, "read", False), (4, "admin", True),
+    (6, "read", True), (6, "write", False), (6, "admin", False),
+    (7, "read", True), (7, "write", False), (7, "admin", True),
+])
 def test_prefilter_is_necessary_for_every_allowed_principal_and_alternative(source, tmp_path, index, scope, accepted):
     policy, pins = artifact(source)
     policy["routes"][index]["prefilter_scope"] = "scanalyze.api.v1/" + scope
@@ -232,7 +247,7 @@ async def not_mounted(auth=Depends(_READ_DOCUMENT_ACCESS)):
 ''')
     policy, pins = artifact(source)
     inventory, _, _ = verifier.inspect_sources(source)
-    assert len(inventory) == 52 and not any("unmounted" in row["path"] for row in inventory)
+    assert len(inventory) == 54 and not any("unmounted" in row["path"] for row in inventory)
     policy["routes"].append({"method":"GET", "path":"/api/v1/documents/unmounted",
         "operation_ids":["documents.read_metadata"], "prefilter_scope":"scanalyze.api.v1/read"})
     seal(policy)

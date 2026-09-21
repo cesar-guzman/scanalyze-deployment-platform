@@ -55,6 +55,11 @@ reader, preserving actor binding, supported lifecycle, worker checkpoint, object
 provenance, byte bounds and result projection. Permission catalogs and grants are
 not broadened.
 
+The offline edge inventory now contains 54 routes: 50 with operation metadata
+and the same four public routes. It still uses 30 existing operations. Its
+contract explicitly binds history to `documents.read_metadata` and bank CSV
+to `exports.execute`, and verifies their accepted and rejected edge scopes.
+
 CSV is buffered before responding, so a denied or invalid document cannot become
 a partially successful export. It is bounded to 50,000 rows and 20 MiB, neutralizes
 spreadsheet formulas through the existing CSV helper and exposes only selected
@@ -96,6 +101,7 @@ Recorded local validation on September 21, 2026 UTC:
 | Frontend unit suite | 82 passed |
 | Complete Playwright suite using the existing command | 79 passed |
 | Frontend source/ownership contracts | 7 passed |
+| Offline edge route-policy suite | 73 passed, including both bank routes and their scope checks |
 | Typecheck, ESLint, production build, diff whitespace | Passed |
 | Independent automated review | Two recovery regressions reproduced and fixed; no remaining P1/P2 findings in the reviewed change |
 
@@ -105,6 +111,13 @@ synthetic default region; adding that runner setting produced the final complete
 pass without changing the test or weakening its assertions. The only remaining
 warning was an existing Starlette/httpx deprecation. Focused and independent runs
 are subsets of these totals and are not additional test cases.
+
+Run the root edge contract with
+`python -m pytest -q tests/test_deployment/test_edge_route_policy.py` whenever
+adding or removing an API route. The first publication exposed two stale
+52-route assertions in that suite; these now enforce the reviewed 54-route
+inventory and preserve the public-route, exact-selection and unmounted-route
+rejection checks. This focused correction does not replace a new hosted CI run.
 
 These checks demonstrate local source behavior, not a deployed authenticated
 document journey. Exact-head CI and review remain prerequisites for integration.
