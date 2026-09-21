@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -449,3 +450,49 @@ class DocumentsRepository:
                 status_code=500,
                 details={},
             )
+
+    def list_owned_documents_page(
+        self,
+        *,
+        ownership: ObjectOwnership,
+        limit: int,
+        after_document_id: str | None = None,
+    ) -> tuple[List[Dict[str, Any]], str | None]:
+        """Read one bounded index page; never accept client-supplied Dynamo keys."""
+        self._ensure_ready()
+        assert self.table is not None
+        if type(limit) is not int or not 1 <= limit <= 100 or (
+            after_document_id is not None
+            and (
+                not isinstance(after_document_id, str)
+                or re.fullmatch(r"[0-9a-f]{32}", after_document_id) is None
+            )
+        ):
+            raise AppError(code="VALIDATION_ERROR", message="Invalid history page.", status_code=422, details={})
+        query: Dict[str, Any] = {
+            "IndexName": "OwnershipIndex",
+            "KeyConditionExpression": "#ownership_key = :ownership_key",
+            "ExpressionAttributeNames": {"#ownership_key": "ownership_key"},
+            "ExpressionAttributeValues": {":ownership_key": ownership.partition},
+            "Limit": limit,
+        }
+        if after_document_id is not None:
+            query["ExclusiveStartKey"] = {
+                **self._key_for(after_document_id), "ownership_key": ownership.partition,
+            }
+        try:
+            response = self.table.query(**query)
+        except ClientError as exc:
+            raise AppError(code="QUERY_FAILED", message="Failed to query documents.", status_code=500, details={}) from exc
+        items = response.get("Items", [])
+        if not isinstance(items, list) or len(items) > limit or any(not isinstance(item, dict) for item in items):
+            raise AppError(code="QUERY_FAILED", message="Invalid history page.", status_code=500, details={})
+        last_key = response.get("LastEvaluatedKey")
+        if last_key is None or last_key == {}:
+            return items, None
+        last_id = items[-1].get("documentId") if items else None
+        if not isinstance(last_id, str) or re.fullmatch(r"[0-9a-f]{32}", last_id) is None or last_key != {
+            **self._key_for(last_id), "ownership_key": ownership.partition,
+        }:
+            raise AppError(code="QUERY_FAILED", message="Invalid history continuation.", status_code=500, details={})
+        return items, last_id

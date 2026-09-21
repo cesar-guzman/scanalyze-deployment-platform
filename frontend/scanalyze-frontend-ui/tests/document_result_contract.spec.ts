@@ -145,7 +145,7 @@ test('bank statement history reads the canonical result envelope and keeps unkno
       filename: 'synthetic-statement.pdf',
       status: 'COMPLETED',
       createdAt: DOCUMENT_STATUS_RESPONSE_FIXTURE.createdAt,
-    }] } });
+    }], nextCursor: null } });
   });
   await page.goto('/bank-statements');
   await page.getByRole('button', { name: 'Historial', exact: true }).click();
@@ -156,4 +156,120 @@ test('bank statement history reads the canonical result envelope and keeps unkno
   const row = page.getByRole('row').filter({ hasText: 'Synthetic amount unavailable' });
   await expect(row.getByRole('cell').nth(4)).toContainText('—');
   await expect(row.getByRole('cell').nth(4)).not.toContainText('0.00');
+});
+
+const bankHistoryDocument = {
+  documentId: DOCUMENT_ID, filename: 'previous-statement.pdf', status: 'COMPLETED',
+  createdAt: DOCUMENT_STATUS_RESPONSE_FIXTURE.createdAt,
+};
+
+test('bank history exists independently of the current tab journal and follows pagination', async ({ page }) => {
+  const cursors: (string | null)[] = [];
+  await page.route(url => url.origin === LOCAL_ORIGIN && url.pathname === '/api/analytics/docs', async route => {
+    const params = new URL(route.request().url()).searchParams;
+    expect(params.get('classRoute')).toBe('bank-extract');
+    expect(params.get('limit')).toBe('50');
+    cursors.push(params.get('cursor'));
+    await route.fulfill({ json: params.has('cursor')
+      ? { documents: [bankHistoryDocument], nextCursor: null }
+      : { documents: [], nextCursor: 'synthetic-page-two' } });
+  });
+  await mockResult(page, BANK_STATEMENT_RESULT_FIXTURE);
+  await page.goto('/bank-statements');
+  await page.getByRole('button', { name: 'Resultados del lote', exact: true }).click();
+  await expect(page.getByText('No hay un lote guardado en esta pestaña.')).toBeVisible();
+  expect(cursors).toEqual([]);
+  await page.getByRole('button', { name: 'Historial', exact: true }).click();
+  await page.getByRole('button', { name: 'Cargar más', exact: true }).click();
+  await page.getByRole('button', { name: /previous-statement.pdf/ }).click();
+  await expect(page.getByText('Synthetic Bank', { exact: true })).toBeVisible();
+  expect(cursors).toEqual([null, 'synthetic-page-two']);
+});
+
+for (const status of [401, 403, 404, 500]) {
+  test(`bank history failure ${status} never claims the account history is empty`, async ({ page }) => {
+    await page.route(url => url.origin === LOCAL_ORIGIN && url.pathname === '/api/analytics/docs', route => route.fulfill({ status, json: {} }));
+    await page.goto('/bank-statements');
+    await page.getByRole('button', { name: 'Historial', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('No se pudo consultar el historial');
+    await expect(page.getByText(/No hay estados de cuenta/)).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Exportar CSV', exact: true })).toHaveCount(0);
+  });
+}
+
+test('bank history denies an invalid document locator before navigating or reading a result', async ({ page }) => {
+  await page.route(url => url.origin === LOCAL_ORIGIN && url.pathname === '/api/analytics/docs', route => route.fulfill({
+    json: { documents: [{ ...bankHistoryDocument, documentId: '../../foreign' }], nextCursor: null },
+  }));
+  await page.goto('/bank-statements');
+  await page.getByRole('button', { name: 'Historial', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('No se pudo consultar el historial');
+  await expect(page.getByRole('button', { name: /previous-statement.pdf/ })).toHaveCount(0);
+});
+
+test('bank result denial leaves no extracted data or CSV action', async ({ page }) => {
+  await page.route(url => url.origin === LOCAL_ORIGIN && url.pathname === '/api/analytics/docs', route => route.fulfill({ json: { documents: [bankHistoryDocument], nextCursor: null } }));
+  await page.route(url => url.origin === LOCAL_ORIGIN && url.pathname === RESULT_PATH, route => route.fulfill({ status: 403, json: {} }));
+  await page.goto('/bank-statements');
+  await page.getByRole('button', { name: 'Historial', exact: true }).click();
+  await page.getByRole('button', { name: /previous-statement.pdf/ }).click();
+  await expect(page.getByRole('alert')).toContainText('No se pudo consultar el resultado');
+  await expect(page.getByText('Synthetic Bank', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Exportar CSV', exact: true })).toHaveCount(0);
+});
+
+test('bank CSV uses the selected historical document and reports export denial', async ({ page }) => {
+  await page.route(url => url.origin === LOCAL_ORIGIN && url.pathname === '/api/analytics/docs', route => route.fulfill({ json: { documents: [bankHistoryDocument], nextCursor: null } }));
+  await mockResult(page, BANK_STATEMENT_RESULT_FIXTURE);
+  let exportCalls = 0;
+  await page.route(url => url.origin === LOCAL_ORIGIN && url.pathname === '/api/analytics/export-bank', route => {
+    expect(new URL(route.request().url()).searchParams.get('documentIds')).toBe(DOCUMENT_ID);
+    exportCalls++;
+    return route.fulfill({ status: 403, json: {} });
+  });
+  await page.goto('/bank-statements');
+  await page.getByRole('button', { name: 'Historial', exact: true }).click();
+  await page.getByRole('button', { name: /previous-statement.pdf/ }).click();
+  await page.getByRole('button', { name: 'Exportar CSV', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('No fue posible descargar el reporte CSV');
+  expect(exportCalls).toBe(1);
+});
+
+test('bank history discards a late response after the stored actor changes', async ({ page }) => {
+  let release!: () => void;
+  let requested!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const seen = new Promise<void>(resolve => { requested = resolve; });
+  await page.route(url => url.origin === LOCAL_ORIGIN && url.pathname === '/api/analytics/docs', async route => {
+    requested();
+    await gate;
+    await route.fulfill({ json: { documents: [bankHistoryDocument], nextCursor: null } });
+  });
+  await page.goto('/bank-statements');
+  await page.getByRole('button', { name: 'Historial', exact: true }).click();
+  await seen;
+  await page.evaluate(key => {
+    const state = JSON.parse(sessionStorage.getItem(key)!);
+    state.profile.sub = 'synthetic-user-b';
+    sessionStorage.setItem(key, JSON.stringify(state));
+  }, syntheticOidcStorageKey);
+  release();
+  await expect(page.getByRole('alert')).toContainText('No se pudo consultar el historial');
+  await expect(page.getByRole('button', { name: /previous-statement.pdf/ })).toHaveCount(0);
+});
+
+test('bank CSV successfully downloads the authorized historical selection', async ({ page }) => {
+  await page.route(url => url.origin === LOCAL_ORIGIN && url.pathname === '/api/analytics/docs', route => route.fulfill({ json: { documents: [bankHistoryDocument], nextCursor: null } }));
+  await mockResult(page, BANK_STATEMENT_RESULT_FIXTURE);
+  await page.route(url => url.origin === LOCAL_ORIGIN && url.pathname === '/api/analytics/export-bank', route => {
+    expect(new URL(route.request().url()).searchParams.get('documentIds')).toBe(DOCUMENT_ID);
+    return route.fulfill({ contentType: 'text/csv', headers: { 'content-disposition': 'attachment; filename=bank_statements.csv' }, body: 'documentId,amount\r\nsynthetic,\r\n' });
+  });
+  await page.goto('/bank-statements');
+  await page.getByRole('button', { name: 'Historial', exact: true }).click();
+  await page.getByRole('button', { name: /previous-statement.pdf/ }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Exportar CSV', exact: true }).click();
+  expect((await download).suggestedFilename()).toBe('bank_statements.csv');
+  await expect(page.getByRole('alert')).toHaveCount(0);
 });
