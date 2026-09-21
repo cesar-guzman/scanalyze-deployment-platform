@@ -89,6 +89,10 @@ jobs:
         working-directory: frontend/scanalyze-frontend-ui
         run: npx playwright install --with-deps chromium
 
+      - name: Run frontend Node browser harnesses
+        working-directory: frontend/scanalyze-frontend-ui
+        run: npm run test:browser
+
       - name: Run frontend E2E tests
         working-directory: frontend/scanalyze-frontend-ui
         run: npm run test:e2e
