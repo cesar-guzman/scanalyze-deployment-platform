@@ -211,6 +211,54 @@ through another tool. Environment protection remains unverified.
 The connected Linear workspace exposes SCA onboarding issues, not the GUG
 delivery workspace; no issue was substituted or changed.
 
+## Read-only collector response compatibility (GUG-425)
+
+The metadata collector, `python3 -m tooling.production_readonly_inventory`,
+accepts two narrowly observed response variations from the September 21, 2026
+metadata investigation. This parser correction does not refresh the historical
+observations above or establish a connected deployment. Its regression tests use
+an injected CLI runner and forbid real subprocesses.
+
+- ACM response `key_algorithm` accepts `RSA-2048` in addition to the existing
+  values, preserving the returned spelling. The outbound `--includes keyTypes`
+  filter remains unchanged and contains `RSA_2048`. The official
+  [CertificateSummary response contract](https://docs.aws.amazon.com/acm/latest/APIReference/API_CertificateSummary.html)
+  also documents the underscore spelling; the hyphen spelling is compatibility
+  with the observed CLI response, not a newly documented AWS enum. No other
+  hyphen or case variant is inferred, and certificate account/region checks
+  remain binding.
+- Bedrock still sends the exact requested model ID and accepts an exact echo.
+  The only additional pair is request `amazon.nova-pro-v1:0` with response
+  `amazon.nova-pro-v1`. The item retains the returned `model_id` and adds
+  `requested_model_id`; the report scope and `exact_model_id` filter retain the
+  request. The official
+  [availability response contract](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_GetFoundationModelAvailability.html)
+  permits model-ID strings but does not document this specific alias pair.
+  Other versions, sibling models and reverse aliases are not inferred.
+
+Unknown algorithms, model mismatches and unsupported availability statuses still
+produce `UNKNOWN` / `RESPONSE_INVALID`. `NOT_AUTHORIZED`, `NOT_AVAILABLE`,
+`PENDING` and `ERROR` retain their observed meanings; even a fully observed report
+keeps `production_authorized=false` and `readiness=NOT_EVALUATED`. Availability
+metadata does not prove model invocation, tenant access or application readiness.
+
+The local GUG-425 candidate was validated with 55 regression cases (also rerun
+independently); the two positive compatibility cases failed before the fix.
+A subsequent connected read used profile
+`905418363887_ScanalyzeSandboxDeploy`, region `us-east-1`, and STS verified account
+`905418363887` at `2026-09-21T02:33:53Z`. Between `02:33:52Z` and `02:34:04Z`, all
+thirteen metadata categories were observed. ACM retained `RSA-2048` and Bedrock
+retained both requested and returned IDs. ECS returned no cluster ARNs in the
+region; filtered resource metadata and DNS checks still do not establish an
+application runtime. The new private artifact `gug425-production-metadata.json`
+has SHA-256 `63f859a7557e3ca4ff2e0514bcfd696161d97ee14b49cb8106e6c4a16dbcac72`.
+The earlier `INCOMPLETE_METADATA` artifact was preserved. This connected result
+validates the local parser against observed responses, not hosted CI, publication,
+deployment, model invocation or application E2E. No cloud write occurred.
+
+Rollback is to revert only this issue's collector, regression-test and runbook
+changes; the prior parser will again reject these two observed response forms.
+
 ## Repairs validated during this continuation
 
 | Change | Current local evidence |
