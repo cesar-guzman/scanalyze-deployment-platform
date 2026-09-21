@@ -19,6 +19,8 @@ const testOrigin = `http://localhost:${testPort}`;
  */
 export default defineConfig({
   testDir: './tests',
+  // Node browser harnesses use node:test and must not be imported by Playwright.
+  testMatch: '**/*.spec.ts',
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
