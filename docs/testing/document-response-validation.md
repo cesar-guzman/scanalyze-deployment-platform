@@ -58,8 +58,8 @@ required. All inputs are synthetic; no application client or browser is loaded.
 ## Integrated validation
 
 The dedicated worktree is based on reviewed PR125 merge
-`4b59040aa9d119943b76424bda0bb6a0abf898dc`; its main reproducibility run
-`35634068118` completed successfully before integration. On Node 22.23.1,
+`4b59040aa9d119943b76424bda0bb6a0abf898dc`; the main reproducibility check for
+that exact merge completed successfully before integration. On Node 22.23.1,
 the integrated frontend passed **418 distinct test cases** on 2026-09-21:
 
 - `npm ci --no-audit --no-fund` from the unchanged lockfile: PASS.
