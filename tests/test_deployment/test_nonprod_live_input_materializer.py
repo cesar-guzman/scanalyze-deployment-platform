@@ -515,6 +515,66 @@ def _materialize(
     )
 
 
+def test_v1_source_layout_does_not_require_or_read_a_release_bundle(tmp_path: Path) -> None:
+    from tooling.nonprod_live_input_materializer import SOURCE_FILENAMES
+
+    result = _materialize(tmp_path / "absent-private-root")
+    assert result.receipt["schema_version"] == "1"
+    assert result.receipt["source_count"] == 8
+    assert set(result.source_documents) == set(SOURCE_FILENAMES)
+    assert len(result.documents["plan-inputs.json"]) == 7
+    assert "infrastructure_selection" not in result.documents["plan-inputs.json"]
+
+
+@pytest.mark.parametrize("defect", ["missing-pin", "inline-bundle", "path", "production", "dev", "wrong-layer", "bad-version"])
+def test_v2_transport_is_closed_and_staging_only(defect: str) -> None:
+    from tests.test_deployment.test_infrastructure_selection_transport import _sealed_v2
+    from tooling.nonprod_live_input_materializer import _validate_sealed_request
+
+    sealed, claim, _ = _sealed_v2()
+    if defect == "missing-pin":
+        del sealed["release_bindings"]["release_bundle_digest"]
+    elif defect == "inline-bundle":
+        sealed["sources"]["release_bundle"] = {}
+    elif defect == "path":
+        sealed["release_bindings"]["release_bundle_path"] = "/outside/bundle.json"
+    elif defect == "bad-version":
+        sealed["schema_version"] = []
+    elif defect == "wrong-layer":
+        claim["layer"] = "network"
+    else:
+        claim["environment"] = defect
+    sealed["sealed_request_digest"] = stable_sealed_request_digest(sealed)
+    claim["sealed_request_digest"] = sealed["sealed_request_digest"]
+    with pytest.raises(LiveInputMaterializationError):
+        _validate_sealed_request(sealed, claim=claim, repo_root=REPO_ROOT)
+
+
+@pytest.mark.parametrize("defect", ["missing", "changed", "extra", "duplicate"])
+def test_v2_materialization_rejects_missing_or_unpinned_private_bundle(tmp_path: Path, defect: str) -> None:
+    from tests.test_deployment.test_infrastructure_selection_transport import _sealed_v2, _stage_bundle
+
+    sealed, claim, bundle = _sealed_v2()
+    root = tmp_path / "private"
+    path = _stage_bundle(root, bundle)
+    if defect == "missing":
+        path.unlink()
+    elif defect == "duplicate":
+        path.write_text('{"manifest":{},"manifest":{}}')
+    else:
+        if defect == "changed":
+            bundle["manifest"]["release_version"] = "changed"
+        else:
+            bundle["unexpected"] = True
+        path.write_text(json.dumps(bundle, separators=(",", ":")))
+    with pytest.raises(LiveInputMaterializationError):
+        materialize_live_inputs(
+            claim=claim, sealed_request=sealed, deployment_id=DEPLOYMENT_ID,
+            layer="platform", operation="plan", claim_digest=claim["claim_digest"],
+            private_root=root, runtime_environment=_runtime(), now=NOW,
+        )
+
+
 def test_plan_materialization_is_deterministic_across_private_roots(
     tmp_path: Path,
 ) -> None:

@@ -127,8 +127,10 @@ For this materializer path, the third anchor is the **projection digest**.
 The projection's `release_manifest_digest` is a separate value: it identifies the
 signed manifest and must match the workflow request/claim `release_digest`.
 Do not substitute that manifest digest for the projection digest or the selection
-digest. The CLI also accepts a `release.v2` document, but production transport
-supplies the projection rebuilt by the existing signature/trust-policy verifier.
+digest. The CLI also accepts a `release.v2` document. The GUG-431 staging
+transport rebuilds a `release-deployment-projection.v1` document with the existing
+signature/trust-policy verifier; it does not establish a production publication
+binding.
 
 Selection and target record hashes use canonical JSON excluding their own
 `record_digest`. A matching self-hash establishes integrity only; obtain the
@@ -184,21 +186,91 @@ document/digest and matching `--layer` and output path.
 
 ## Step 5: Transport
 
-The local materializer/controller transport for `platform`, `edge-identity`,
-and `edge` requires sealed-request v3/v4 selection sources and independent
-release bindings. It verifies the signed release bundle and rebuilds its
-projection before binding the selection to the target and exact layer. The
-materializer then writes the selection at the fixed private path:
-`materialized/sources/infrastructure-selection.json` (mode `0600`)
-with its expected digest forwarded as:
-`--infrastructure-selection` and `--expected-infrastructure-selection-digest`.
+### Production integration remains pending
+
+The standalone selection CLI in Steps 3 and 4 supports local verification and
+per-layer variable emission. The controller and wrapper integration implemented
+by GUG-431 is the staging path described below. This increment does not provide
+a production execution path; separately reviewed production authority and
+transport integration remain prerequisites.
 
 The standalone CLI output does not replace the reviewed claim, registry anchor,
 signed release authority, or materializer gates. Local transport support does
 not prove a successful GitHub dispatch, plan/apply, or production deployment.
+
+### GUG-431: separate staging transport
+
+`nonprod-live-input-sealed-request.v2.schema.json` extends the nonproduction
+materializer with infrastructure selections for `staging` and exactly the
+`platform`, `edge-identity`, and `edge` layers. This v2 belongs to the nonproduction
+schema family and does not admit production execution. Legacy nonproduction v1
+inputs retain their existing
+source layout.
+
+Use an independently approved staging target, selection, and release. The
+production example in Step 2 is not an input to this staging path. The v2 request
+adds the infrastructure selection and reviewed selection/bundle digests to its
+existing release bindings. The materializer checks the separately staged release
+bundle against its digest, verifies the signed release, and rebuilds its
+deployment projection. The manifest digest must equal the repository claim's
+`release_digest`; the projection digest and selection digest remain separate
+anchors.
+
+Before materialization, the reviewed release bundle must already occupy
+`<private_root>/release-bundle.json`; it is not embedded in the sealed request.
+The private root is outside the repository with mode `0700`. Its bundle must be
+an owner-controlled regular file with mode `0600`, no symbolic or hard links,
+and a size from 2 through 36,000 bytes. The sealed request has its own limits of
+36,000 decoded bytes and 48,000 encoded bytes. These constraints do not authorize
+printing or inspecting private bundle contents during an operational readback.
+
+Materialization preserves the eight legacy sources and adds three fixed sources
+under `materialized/sources/`, for eleven in total:
+
+- `infrastructure-selection.json`
+- `release-bundle.json`
+- `infrastructure-bindings.json`
+
+The private source files use mode `0600`. Source names, hashes, receipt/manifest
+versions, and path maps are revalidated before use. The original staged bundle
+must also remain unchanged for the controller's action-time reconstruction;
+loading an already materialized package alone does not establish that check.
+
+Plan and the controller's Observe command receive the same three fixed source
+paths and `--expected-infrastructure-bindings-digest`. The other transport flags
+are `--infrastructure-selection`, `--release-bundle`, and
+`--infrastructure-bindings`; partial input sets are rejected. These are controller
+inputs, not a standalone deployment authorization.
+
+`terraform-layer.sh` revalidates the signed binding before adding exactly the
+selected layer's one root variable to the existing contract-derived variables.
+It rejects a collision instead of replacing a contract-owned value.
+`terraform-saved-plan.sh` accepts the selection inputs only for its staging Plan
+path and rejects them for saved-plan Apply. Apply continues to use the approved
+saved plan. This change does not open a production lane or supply the missing
+upstream authority resources.
+
+### Local validation boundary
+
+The GUG-431 focused validation recorded 101 passing cases covering the selected
+materializer tests, nonproduction orchestrator, and infrastructure transport.
+The transport suite exercises all three layers with signed synthetic releases,
+exact variable emission, collisions, altered target/release bindings, source
+tampering, and consistent Plan/Observe arguments. Repository claim custody and
+external cloud/GitHub observations are replaced at test boundaries.
+
+Bash syntax and diff checks also passed. The wrappers were not used to run
+Terraform, and this evidence does not establish hosted CI, live Plan/Apply,
+deployed identity, DNS/HTTPS, or a connected document-processing flow.
 
 ## Rollback
 
 This runbook creates no cloud resources. Removing the selection document
 reverses the proposal. If resources were selected in error, correct the
 document and re-validate.
+
+For the GUG-431 code increment, revert the nonproduction schema, materializer,
+controller, orchestrator, wrapper, test, and documentation changes together.
+Do not reinterpret a v2 package as v1; any later run must use freshly prepared
+inputs compatible with the retained implementation. No deployment or cloud
+resource mutation was performed during the local validation described above.

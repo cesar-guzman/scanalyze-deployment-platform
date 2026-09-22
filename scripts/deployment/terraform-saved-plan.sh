@@ -204,6 +204,10 @@ TARGET_ANCHOR=""
 ACCOUNT_READY_CONTRACT=""
 EXECUTION_LOCK=""
 EXECUTION_ID=""
+INFRASTRUCTURE_SELECTION=""
+RELEASE_BUNDLE=""
+INFRASTRUCTURE_BINDINGS=""
+EXPECTED_INFRASTRUCTURE_BINDINGS_DIGEST=""
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -237,9 +241,23 @@ while [[ "$#" -gt 0 ]]; do
     --account-ready)     [[ -n "${2:-}" ]] || die "--account-ready requires a value"; ACCOUNT_READY_CONTRACT="$2"; shift 2 ;;
     --execution-lock)    [[ -n "${2:-}" ]] || die "--execution-lock requires a value"; EXECUTION_LOCK="$2"; shift 2 ;;
     --execution-id)      [[ -n "${2:-}" ]] || die "--execution-id requires a value"; EXECUTION_ID="$2"; shift 2 ;;
+    --infrastructure-selection) [[ -n "${2:-}" ]] || die "--infrastructure-selection requires a value"; INFRASTRUCTURE_SELECTION="$2"; shift 2 ;;
+    --release-bundle) [[ -n "${2:-}" ]] || die "--release-bundle requires a value"; RELEASE_BUNDLE="$2"; shift 2 ;;
+    --infrastructure-bindings) [[ -n "${2:-}" ]] || die "--infrastructure-bindings requires a value"; INFRASTRUCTURE_BINDINGS="$2"; shift 2 ;;
+    --expected-infrastructure-bindings-digest) [[ -n "${2:-}" ]] || die "--expected-infrastructure-bindings-digest requires a value"; EXPECTED_INFRASTRUCTURE_BINDINGS_DIGEST="$2"; shift 2 ;;
     *) die "unknown option: $1" ;;
   esac
 done
+
+if [[ -n "$INFRASTRUCTURE_SELECTION$RELEASE_BUNDLE$INFRASTRUCTURE_BINDINGS$EXPECTED_INFRASTRUCTURE_BINDINGS_DIGEST" ]]; then
+  [[ -n "$INFRASTRUCTURE_SELECTION" && -n "$RELEASE_BUNDLE" && -n "$INFRASTRUCTURE_BINDINGS" ]] \
+    || die "Infrastructure transport requires all fixed inputs"
+  [[ "$EXPECTED_INFRASTRUCTURE_BINDINGS_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] \
+    || die "Infrastructure transport requires its exact reviewed digest"
+  [[ "$ENVIRONMENT" == "staging" ]] || die "Infrastructure transport is restricted to staging"
+  case "$LAYER" in platform|edge-identity|edge) ;; *) die "Infrastructure transport layer is not allowed" ;; esac
+  [[ "$ACTION" == "plan" ]] || die "Saved-plan apply cannot accept infrastructure inputs"
+fi
 
 [[ -n "$LAYER" ]] || die "--layer is required"
 [[ "$LAYER" =~ ^[a-z][a-z0-9-]{1,63}$ ]] || die "--layer is invalid"
@@ -299,6 +317,15 @@ if [[ "$ACTION" == "plan" ]]; then
   [[ -z "$RESOLVED_INPUT" ]] || plan_arguments+=(--resolved-input "$RESOLVED_INPUT")
   [[ -z "$EXECUTION_LOCK" ]] || plan_arguments+=(--execution-lock "$EXECUTION_LOCK")
   [[ -z "$EXECUTION_ID" ]] || plan_arguments+=(--execution-id "$EXECUTION_ID")
+
+  if [[ -n "$INFRASTRUCTURE_SELECTION" ]]; then
+    plan_arguments+=(
+      --infrastructure-selection "$INFRASTRUCTURE_SELECTION"
+      --release-bundle "$RELEASE_BUNDLE"
+      --infrastructure-bindings "$INFRASTRUCTURE_BINDINGS"
+      --expected-infrastructure-bindings-digest "$EXPECTED_INFRASTRUCTURE_BINDINGS_DIGEST"
+    )
+  fi
 
   bash "${SCRIPT_DIR}/terraform-layer.sh" "${plan_arguments[@]}"
   require_private_regular_file "$EXPECTED_PLAN_PATH" "Saved plan"

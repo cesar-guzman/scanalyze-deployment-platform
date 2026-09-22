@@ -441,6 +441,48 @@ def _validated_paths(
     }
 
 
+INFRASTRUCTURE_PATH_FIELDS = frozenset({
+    "infrastructure_selection", "release_bundle", "infrastructure_bindings",
+})
+INFRASTRUCTURE_DIGEST_FIELD = "expected_infrastructure_bindings_digest"
+
+
+def _validated_plan_inputs(
+    supplied: Mapping[str, Any], context: Mapping[str, Any],
+) -> dict[str, str]:
+    if set(supplied) == set(PLAN_INPUT_FIELDS):
+        return _validated_paths(supplied, PLAN_INPUT_FIELDS, "plan")
+    expected = PLAN_INPUT_FIELDS | INFRASTRUCTURE_PATH_FIELDS | {INFRASTRUCTURE_DIGEST_FIELD}
+    if (
+        set(supplied) != expected
+        or context.get("environment") != "staging"
+        or context.get("layer") not in {"platform", "edge-identity", "edge"}
+    ):
+        raise AuthorizationError("infrastructure transport scope is invalid")
+    digest = supplied[INFRASTRUCTURE_DIGEST_FIELD]
+    _require_digest(digest, "infrastructure transport")
+    paths = _validated_paths(
+        {key: value for key, value in supplied.items() if key != INFRASTRUCTURE_DIGEST_FIELD},
+        PLAN_INPUT_FIELDS | INFRASTRUCTURE_PATH_FIELDS, "plan",
+    )
+    if len(set(paths.values())) != len(paths):
+        raise AuthorizationError("infrastructure transport paths must be distinct")
+    return {**paths, INFRASTRUCTURE_DIGEST_FIELD: digest}
+
+
+def infrastructure_transport_arguments(
+    context: Mapping[str, Any], plan_inputs: Mapping[str, Any],
+) -> tuple[str, ...]:
+    """Use the same closed transport for Plan and read-only Observe."""
+    paths = _validated_plan_inputs(plan_inputs, context)
+    if INFRASTRUCTURE_DIGEST_FIELD not in paths:
+        return ()
+    return tuple(part for key in (
+        "infrastructure_selection", "release_bundle", "infrastructure_bindings",
+        INFRASTRUCTURE_DIGEST_FIELD,
+    ) for part in ("--" + key.replace("_", "-"), paths[key]))
+
+
 def build_plan_intent(
     *,
     context: Mapping[str, Any],
@@ -451,7 +493,7 @@ def build_plan_intent(
     """Build the complete existing plan-wrapper command; never execute it."""
     _validate_live_context(context)
     _validate_expected_bindings(context, expected_bindings)
-    paths = _validated_paths(plan_inputs, PLAN_INPUT_FIELDS, "plan")
+    paths = _validated_plan_inputs(plan_inputs, context)
     if domain_name is not None and not DOMAIN_NAME.fullmatch(domain_name):
         raise AuthorizationError("plan domain name is invalid")
     expected_role = _terminal_role_arn(
@@ -508,6 +550,7 @@ def build_plan_intent(
             context["execution_id"],
         )
     )
+    argv.extend(infrastructure_transport_arguments(context, paths))
     intent: dict[str, Any] = {
         "schema_version": "1",
         "record_type": "nonprod_live_plan_intent",
