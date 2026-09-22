@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { syntheticAuthState, syntheticOidcStorageKey, syntheticRuntimeConfig } from './runtime';
+import { DOCUMENT_STATUS_RESPONSE_FIXTURE } from '../src/contracts/documentJourney.v1.fixtures';
 
 test.beforeEach(async ({ page }) => {
   await page.route('/config.json', async route => {
@@ -46,17 +47,20 @@ test('Recovery UX: An uncertain create offers recovery without creating again', 
 });
 
 test('Recovery UX: Handle backend terminal FAILED state gracefully', async ({ page }) => {
-  const docId = 'doc-fail-123';
+  const docId = DOCUMENT_STATUS_RESPONSE_FIXTURE.documentId;
 
   // Direct access to polling page with FAILED state mock
   await page.route(`**/api/v2/documents/${docId}`, async route => {
     await route.fulfill({
       status: 200,
       json: {
+        ...DOCUMENT_STATUS_RESPONSE_FIXTURE,
         documentId: docId,
         lifecycle: 'FAILED',
         currentStage: 'TERMINAL',
-        safeFailureCode: 'Unparseable pdf mock',
+        stageState: 'FAILED',
+        processingCondition: 'NOT_APPLICABLE',
+        safeFailureCode: 'OCR_FAILED',
         failureDisposition: 'TERMINAL'
       }
     });
@@ -65,7 +69,7 @@ test('Recovery UX: Handle backend terminal FAILED state gracefully', async ({ pa
   await page.goto(`/document/${docId}`);
 
   // Verify Timeline explicit error display
-  await expect(page.locator('text=Unparseable pdf mock')).toBeVisible();
+  await expect(page.getByText('OCR_FAILED', { exact: true })).toBeVisible();
 
   // Verify Critical Error Box with Recovery Action
   await expect(page.locator('text=Error de Procesamiento')).toBeVisible();

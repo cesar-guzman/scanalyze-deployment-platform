@@ -114,7 +114,12 @@ before(async () => {
   for (const path of ['src/hooks/useDocumentJourney.ts', 'src/api/documentApi.ts']) {
     assert.ok(inputs.includes(path), `Real source missing: ${path}`);
   }
-  assert.deepEqual(inputs.filter(path => path.startsWith('src/')).sort(), ['src/api/documentApi.ts', 'src/hooks/useDocumentJourney.ts']);
+  assert.deepEqual(inputs.filter(path => path.startsWith('src/')).sort(), [
+    'src/api/documentApi.ts',
+    'src/contracts/documentJourney.v1.ts',
+    'src/domain/documentResponseValidation.ts',
+    'src/hooks/useDocumentJourney.ts',
+  ]);
   const bundle = output.outputFiles[0].text;
   server = createServer((request, response) => {
     const url = new URL(request.url, 'http://127.0.0.1');
