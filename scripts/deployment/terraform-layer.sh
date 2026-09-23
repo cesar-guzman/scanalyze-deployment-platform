@@ -51,6 +51,10 @@ TARGET_ANCHOR=""
 ACCOUNT_READY_CONTRACT=""
 EXECUTION_LOCK=""
 EXECUTION_ID=""
+INFRASTRUCTURE_SELECTION=""
+RELEASE_BUNDLE=""
+INFRASTRUCTURE_BINDINGS=""
+EXPECTED_INFRASTRUCTURE_BINDINGS_DIGEST=""
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -71,9 +75,22 @@ while [[ "$#" -gt 0 ]]; do
     --account-ready)   [[ -n "${2:-}" ]] || die "--account-ready requires a value"; ACCOUNT_READY_CONTRACT="$2"; shift 2 ;;
     --execution-lock)  [[ -n "${2:-}" ]] || die "--execution-lock requires a value"; EXECUTION_LOCK="$2"; shift 2 ;;
     --execution-id)    [[ -n "${2:-}" ]] || die "--execution-id requires a value"; EXECUTION_ID="$2"; shift 2 ;;
+    --infrastructure-selection) [[ -n "${2:-}" ]] || die "--infrastructure-selection requires a value"; INFRASTRUCTURE_SELECTION="$2"; shift 2 ;;
+    --release-bundle) [[ -n "${2:-}" ]] || die "--release-bundle requires a value"; RELEASE_BUNDLE="$2"; shift 2 ;;
+    --infrastructure-bindings) [[ -n "${2:-}" ]] || die "--infrastructure-bindings requires a value"; INFRASTRUCTURE_BINDINGS="$2"; shift 2 ;;
+    --expected-infrastructure-bindings-digest) [[ -n "${2:-}" ]] || die "--expected-infrastructure-bindings-digest requires a value"; EXPECTED_INFRASTRUCTURE_BINDINGS_DIGEST="$2"; shift 2 ;;
     *) die "unknown option: $1" ;;
   esac
 done
+
+if [[ -n "$INFRASTRUCTURE_SELECTION$RELEASE_BUNDLE$INFRASTRUCTURE_BINDINGS$EXPECTED_INFRASTRUCTURE_BINDINGS_DIGEST" ]]; then
+  [[ -n "$INFRASTRUCTURE_SELECTION" && -n "$RELEASE_BUNDLE" && -n "$INFRASTRUCTURE_BINDINGS" ]] \
+    || die "Infrastructure transport requires all fixed inputs"
+  [[ "$EXPECTED_INFRASTRUCTURE_BINDINGS_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] \
+    || die "Infrastructure transport requires its exact reviewed digest"
+  [[ "$ENVIRONMENT" == "staging" ]] || die "Infrastructure transport is restricted to staging"
+  case "$LAYER" in platform|edge-identity|edge) ;; *) die "Infrastructure transport layer is not allowed" ;; esac
+fi
 
 [[ -n "$LAYER" ]] || die "--layer is required"
 [[ -n "$PLAN_DIR" ]] || die "--plan-dir is required"
@@ -515,6 +532,47 @@ PY
     --materialize-out "$MATERIALIZED_VARS" \
     "${static_routing_args[@]}" \
     || die "Verified contract resolution is required before Terraform plan"
+
+  if [[ -n "$INFRASTRUCTURE_SELECTION" ]]; then
+    python3 - "$REPO_ROOT" "$MATERIALIZED_VARS" "$TARGET_RECORD" \
+      "$INFRASTRUCTURE_SELECTION" "$RELEASE_BUNDLE" "$INFRASTRUCTURE_BINDINGS" \
+      "$EXPECTED_INFRASTRUCTURE_BINDINGS_DIGEST" "$LAYER" "$RELEASE_DIGEST" <<'PY_INFRA'
+import os
+import stat
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+(repo, variables_path, target_path, selection_path, bundle_path,
+ bindings_path, expected_digest, layer, release_digest) = sys.argv[1:]
+sys.path.insert(0, repo)
+from tooling.nonprod_live_input_materializer import (
+    _json_bytes, _read_private_output, merge_live_infrastructure_variables,
+    read_live_infrastructure_source,
+)
+
+try:
+    merged = merge_live_infrastructure_variables(
+        _read_private_output(Path(variables_path)),
+        selection=read_live_infrastructure_source(Path(selection_path)),
+        release_bundle=read_live_infrastructure_source(Path(bundle_path)),
+        bindings=read_live_infrastructure_source(Path(bindings_path)),
+        expected_bindings_digest=expected_digest,
+        target=_read_private_output(Path(target_path)),
+        layer=layer, release_digest=release_digest, now=datetime.now(UTC),
+    )
+    descriptor = os.open(variables_path, os.O_WRONLY | os.O_NOFOLLOW)
+    with os.fdopen(descriptor, "wb") as handle:
+        metadata = os.fstat(handle.fileno())
+        if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid()
+                or metadata.st_nlink != 1 or stat.S_IMODE(metadata.st_mode) != 0o600):
+            raise ValueError("private variable output required")
+        handle.truncate(0)
+        handle.write(_json_bytes(merged))
+except (ValueError, TypeError, KeyError, OSError):
+    raise SystemExit("DENY: infrastructure input transport validation failed") from None
+PY_INFRA
+  fi
 
   terraform_variables=(
     "-var-file=${MATERIALIZED_VARS}"

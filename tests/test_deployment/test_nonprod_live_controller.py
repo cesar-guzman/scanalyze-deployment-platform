@@ -310,12 +310,17 @@ def _package(
             source_documents[key],
         )
     manifest = {
+        "schema_version": "1",
         "source_document_digests": {
             key: canonical_digest(document)
             for key, document in source_documents.items()
         }
     }
-    receipt = {**_cost_binding(), "source_count": len(source_documents)}
+    receipt = {
+        "schema_version": "1",
+        **_cost_binding(),
+        "source_count": len(source_documents)
+    }
     write_private_json_once(root / "materialized/manifest.json", manifest)
     write_private_json_once(root / "materialized/receipt.json", receipt)
     return LiveInputPackage(
@@ -2748,3 +2753,97 @@ def test_real_contract_publisher_is_create_only_with_exact_double_readback(
     assert len(terminal.calls) == 1
     for path in package.controller_root.glob("*.json"):
         assert "never-persist" not in path.read_text(encoding="utf-8")
+
+def test_materialization_rejects_missing_schema_version(tmp_path: Path) -> None:
+    package = _package(tmp_path, "plan")
+    package.manifest.pop("schema_version")
+    package.receipt.pop("schema_version")
+    (package.materialized_root / "manifest.json").unlink()
+    (package.materialized_root / "receipt.json").unlink()
+    write_private_json_once(package.materialized_root / "manifest.json", package.manifest)
+    write_private_json_once(package.materialized_root / "receipt.json", package.receipt)
+
+    with pytest.raises(AuthorizationError, match="materialized source version is invalid"):
+        run_plan_controller(
+            package,
+            receipt_digest=_sha("b"),
+            terminal_session=FakePlanTerminal(package),
+            ledger_store=FakeLedgerStore(),
+            now=NOW,
+        )
+
+
+def test_materialization_rejects_unknown_schema_version(tmp_path: Path) -> None:
+    package = _package(tmp_path, "plan")
+    package.manifest["schema_version"] = "999"
+    package.receipt["schema_version"] = "999"
+    (package.materialized_root / "manifest.json").unlink()
+    (package.materialized_root / "receipt.json").unlink()
+    write_private_json_once(package.materialized_root / "manifest.json", package.manifest)
+    write_private_json_once(package.materialized_root / "receipt.json", package.receipt)
+
+    with pytest.raises(AuthorizationError, match="materialized source version is invalid"):
+        run_plan_controller(
+            package,
+            receipt_digest=_sha("b"),
+            terminal_session=FakePlanTerminal(package),
+            ledger_store=FakeLedgerStore(),
+            now=NOW,
+        )
+
+
+def test_materialization_rejects_numeric_schema_version(tmp_path: Path) -> None:
+    package = _package(tmp_path, "plan")
+    package.manifest["schema_version"] = 1
+    package.receipt["schema_version"] = 1
+    (package.materialized_root / "manifest.json").unlink()
+    (package.materialized_root / "receipt.json").unlink()
+    write_private_json_once(package.materialized_root / "manifest.json", package.manifest)
+    write_private_json_once(package.materialized_root / "receipt.json", package.receipt)
+
+    with pytest.raises(AuthorizationError, match="materialized source version is invalid"):
+        run_plan_controller(
+            package,
+            receipt_digest=_sha("b"),
+            terminal_session=FakePlanTerminal(package),
+            ledger_store=FakeLedgerStore(),
+            now=NOW,
+        )
+
+
+def test_materialization_rejects_discrepant_schema_version(tmp_path: Path) -> None:
+    package = _package(tmp_path, "plan")
+    package.manifest["schema_version"] = "1"
+    package.receipt["schema_version"] = "2"
+    (package.materialized_root / "manifest.json").unlink()
+    (package.materialized_root / "receipt.json").unlink()
+    write_private_json_once(package.materialized_root / "manifest.json", package.manifest)
+    write_private_json_once(package.materialized_root / "receipt.json", package.receipt)
+
+    with pytest.raises(AuthorizationError, match="materialized source version mismatch"):
+        run_plan_controller(
+            package,
+            receipt_digest=_sha("b"),
+            terminal_session=FakePlanTerminal(package),
+            ledger_store=FakeLedgerStore(),
+            now=NOW,
+        )
+
+
+def test_materialization_rejects_v2_with_8_sources(tmp_path: Path) -> None:
+    package = _package(tmp_path, "plan")
+    package.manifest["schema_version"] = "2"
+    package.receipt["schema_version"] = "2"
+    (package.materialized_root / "manifest.json").unlink()
+    (package.materialized_root / "receipt.json").unlink()
+    write_private_json_once(package.materialized_root / "manifest.json", package.manifest)
+    write_private_json_once(package.materialized_root / "receipt.json", package.receipt)
+
+    with pytest.raises(AuthorizationError, match="materialized source digest manifest is invalid"):
+        run_plan_controller(
+            package,
+            receipt_digest=_sha("b"),
+            terminal_session=FakePlanTerminal(package),
+            ledger_store=FakeLedgerStore(),
+            now=NOW,
+        )

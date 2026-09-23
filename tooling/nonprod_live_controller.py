@@ -54,7 +54,8 @@ from tooling.nonprod_live_github_approval import (
 )
 from tooling.nonprod_live_input_materializer import (
     LiveInputMaterializationError,
-    SOURCE_FILENAMES,
+    INFRASTRUCTURE_SOURCE_FILENAMES,
+    source_filenames,
     load_repository_claim,
     revalidate_private_root_at_action_time,
     validate_claim,
@@ -64,6 +65,7 @@ from tooling.nonprod_live_orchestrator import (
     build_plan_intent,
     classify_apply_observation,
     require_live_nonproduction_environment,
+    infrastructure_transport_arguments,
     validate_apply_intent,
     validate_plan_intent,
 )
@@ -284,9 +286,16 @@ def _revalidate_materialized_sources(package: LiveInputPackage) -> None:
             "materialized authority evidence changed after validation"
         )
     expected_digests = current_manifest.get("source_document_digests")
+    try:
+        version = current_manifest.get("schema_version")
+        filenames = source_filenames(version)
+    except LiveInputMaterializationError as exc:
+        raise AuthorizationError("materialized source version is invalid") from exc
+    if current_receipt.get("schema_version") != version:
+        raise AuthorizationError("materialized source version mismatch")
     if (
         not isinstance(expected_digests, Mapping)
-        or set(expected_digests) != set(SOURCE_FILENAMES)
+        or set(expected_digests) != set(filenames)
         or any(
             not isinstance(value, str) or not DIGEST.fullmatch(value)
             for value in expected_digests.values()
@@ -297,7 +306,7 @@ def _revalidate_materialized_sources(package: LiveInputPackage) -> None:
     if (
         isinstance(source_count, bool)
         or not isinstance(source_count, int)
-        or source_count != len(SOURCE_FILENAMES)
+        or source_count != len(filenames)
     ):
         raise AuthorizationError("materialized source count is invalid")
 
@@ -319,9 +328,9 @@ def _revalidate_materialized_sources(package: LiveInputPackage) -> None:
             raise AuthorizationError(
                 "materialized source directory custody is invalid"
             )
-        if set(os.listdir(directory_descriptor)) != set(SOURCE_FILENAMES.values()):
+        if set(os.listdir(directory_descriptor)) != set(filenames.values()):
             raise AuthorizationError("materialized source set is not canonical")
-        for key, filename in SOURCE_FILENAMES.items():
+        for key, filename in filenames.items():
             descriptor: int | None = None
             try:
                 descriptor = os.open(
@@ -381,7 +390,9 @@ def write_private_json_once(path: Path, document: Mapping[str, Any]) -> None:
             os.close(descriptor)
 
 
-def _expected_input_maps(private_root: Path) -> tuple[dict[str, str], dict[str, str]]:
+def _expected_input_maps(
+    private_root: Path, manifest: Mapping[str, Any] | None = None,
+) -> tuple[dict[str, str], dict[str, str]]:
     materialized = private_root / "materialized"
     sources = materialized / "sources"
     controller = materialized / "controller"
@@ -394,6 +405,12 @@ def _expected_input_maps(private_root: Path) -> tuple[dict[str, str], dict[str, 
         "account_ready": str(sources / "account-ready.json"),
         "execution_lock": str(sources / "execution-lock.json"),
     }
+    if manifest is not None and manifest.get("schema_version") == "2":
+        digest = manifest.get("source_document_digests", {}).get("infrastructure_bindings")
+        if not isinstance(digest, str) or not DIGEST.fullmatch(digest):
+            raise AuthorizationError("infrastructure transport digest is invalid")
+        plan.update({key: str(sources / filename) for key, filename in INFRASTRUCTURE_SOURCE_FILENAMES.items()})
+        plan["expected_infrastructure_bindings_digest"] = digest
     apply = {
         "apply_intent": str(controller / "apply-intent.json"),
         "context": str(materialized / "context.json"),
@@ -456,7 +473,7 @@ def load_live_input_package(
         context.get("environment")
     )
 
-    expected_plan, expected_apply = _expected_input_maps(private_root)
+    expected_plan, expected_apply = _expected_input_maps(private_root, manifest)
     if plan_inputs != expected_plan or apply_inputs != expected_apply:
         raise AuthorizationError("materialized operational path map is not canonical")
     if receipt.get("receipt_digest") != receipt_digest or canonical_digest(
@@ -2706,6 +2723,7 @@ def _post_apply_observe_command(
         if not isinstance(domain, str):
             raise AuthorizationError("post-apply runtime origin is invalid")
         command.extend(("--domain-name", domain))
+    command.extend(infrastructure_transport_arguments(package.context, package.plan_inputs))
     return tuple(command)
 
 
