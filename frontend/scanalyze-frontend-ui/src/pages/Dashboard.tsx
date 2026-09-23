@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { useAuth } from 'react-oidc-context';
 import { getApiClient } from '../api/client';
 import { Link } from 'react-router-dom';
@@ -31,6 +31,8 @@ export const Dashboard: React.FC = () => {
   const [selectedDocIds, setSelectedDocIds] = useState<Set<string>>(new Set());
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const exportAttemptRef = useRef<number>(0);
 
   // Batch tab state
   const [batches, setBatches] = useState<BatchSummary[]>([]);
@@ -97,6 +99,8 @@ export const Dashboard: React.FC = () => {
   };
 
   const handleIneDownload = async () => {
+    const currentAttempt = ++exportAttemptRef.current;
+    setDownloadError(null);
     setDownloading(true);
     try {
       const client = getApiClient();
@@ -116,6 +120,7 @@ export const Dashboard: React.FC = () => {
         params: Object.fromEntries(params.entries()),
         responseType: 'blob',
       });
+      if (currentAttempt !== exportAttemptRef.current) return;
       const objectUrl = window.URL.createObjectURL(response.data);
       const a = document.createElement('a');
       a.href = objectUrl;
@@ -127,9 +132,12 @@ export const Dashboard: React.FC = () => {
       window.URL.revokeObjectURL(objectUrl);
       setShowIneModal(false);
     } catch {
-      // The API error remains intentionally generic at the browser boundary.
+      if (currentAttempt !== exportAttemptRef.current) return;
+      setDownloadError('No fue posible descargar el reporte. Revisa tus permisos o vuelve a intentarlo.');
     } finally {
-      setDownloading(false);
+      if (currentAttempt === exportAttemptRef.current) {
+        setDownloading(false);
+      }
     }
   };
 
@@ -290,7 +298,7 @@ export const Dashboard: React.FC = () => {
           </Link>
 
           {/* INE Export Tile */}
-          <div onClick={() => setShowIneModal(true)} className="glass-card flex flex-col items-center justify-center p-10 gap-6 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:border-pink-500/50 group cursor-pointer">
+          <div onClick={() => { exportAttemptRef.current++; setShowIneModal(true); setDownloadError(null); setDownloading(false); }} className="glass-card flex flex-col items-center justify-center p-10 gap-6 text-center transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl hover:border-pink-500/50 group cursor-pointer">
             <div className="w-16 h-16 rounded-full bg-pink-500/10 text-pink-400 flex items-center justify-center group-hover:bg-pink-500/20 group-hover:text-pink-300 transition-colors">
               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" /></svg>
             </div>
@@ -525,7 +533,13 @@ export const Dashboard: React.FC = () => {
               )}
 
               <div className="flex justify-end gap-4 mt-8">
-                <button onClick={() => { setShowIneModal(false); setSelectedDocIds(new Set()); setSelectedBatchId(''); }} className="px-5 py-2.5 rounded-lg font-semibold bg-transparent text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">Cancelar</button>
+                {downloadError && (
+                  <div role="alert" className="mr-auto p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2 max-w-sm">
+                    <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    {downloadError}
+                  </div>
+                )}
+                <button onClick={() => { exportAttemptRef.current++; setShowIneModal(false); setSelectedDocIds(new Set()); setSelectedBatchId(''); setDownloadError(null); setDownloading(false); }} className="px-5 py-2.5 rounded-lg font-semibold bg-transparent text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">Cancelar</button>
                 <button
                   onClick={handleIneDownload}
                   disabled={isDownloadDisabled()}
