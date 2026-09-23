@@ -102,9 +102,16 @@ def test_generated_build_tree_is_excluded_without_excluding_source():
     assert should_scan(Path("tooling/generated.py"))
 
 
-def test_gug376_temporary_sdk_credential_binding_is_narrowly_allowlisted():
+@pytest.mark.parametrize(
+    "source_path",
+    [
+        "tooling/platform_authority_gug376_collision_direct_sso.py",
+        "tooling/platform_authority_gug376_upstream_live_provider.py",
+    ],
+)
+def test_gug376_temporary_sdk_credential_binding_is_narrowly_allowlisted(source_path):
     repo_root = Path(__file__).resolve().parents[2]
-    source = repo_root / "tooling/platform_authority_gug376_collision_direct_sso.py"
+    source = repo_root / source_path
     allowlist = load_allowlist(repo_root / "sentinel_allowlist.yaml")
     findings = scan_file(source, {"AWS_SECRET_KEY": SECRET_PATTERNS["AWS_SECRET_KEY"]})
 
@@ -116,6 +123,60 @@ def test_gug376_temporary_sdk_credential_binding_is_narrowly_allowlisted():
         line,
         fingerprint,
         allowlist,
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation", ["path", "detector", "prefix", "suffix", "fingerprint", "reference"]
+)
+def test_gug432_upstream_sdk_binding_rejects_unreviewed_context(mutation):
+    repo_root = Path(__file__).resolve().parents[2]
+    path = Path("tooling/platform_authority_gug376_upstream_live_provider.py")
+    allowlist = load_allowlist(repo_root / "sentinel_allowlist.yaml")
+    findings = scan_file(
+        repo_root / path, {"AWS_SECRET_KEY": SECRET_PATTERNS["AWS_SECRET_KEY"]}
+    )
+    assert len(findings) == 1
+    pattern_id, _, _, line, fingerprint = findings[0]
+    assert is_allowlisted(path, pattern_id, line, fingerprint, allowlist)
+
+    if mutation == "path":
+        path = Path("tooling/unreviewed_provider.py")
+    elif mutation == "detector":
+        pattern_id = "RFC"
+    elif mutation == "prefix":
+        line = "unreviewed " + line.lstrip()
+    elif mutation == "suffix":
+        line = line.rstrip() + " unreviewed\n"
+    elif mutation == "fingerprint":
+        fingerprint = "0" * 64
+    else:
+        line = line.replace("frozen.secret_key", "unreviewed.secret_key")
+
+    assert not is_allowlisted(path, pattern_id, line, fingerprint, allowlist)
+
+
+def test_gug432_upstream_sdk_binding_rejects_a_synthetic_literal(tmp_path):
+    repo_root = Path(__file__).resolve().parents[2]
+    path = Path("tooling/platform_authority_gug376_upstream_live_provider.py")
+    patterns = {"AWS_SECRET_KEY": SECRET_PATTERNS["AWS_SECRET_KEY"]}
+    allowlist = load_allowlist(repo_root / "sentinel_allowlist.yaml")
+    findings = scan_file(repo_root / path, patterns)
+    assert len(findings) == 1
+    pattern_id, _, _, line, fingerprint = findings[0]
+    assert is_allowlisted(path, pattern_id, line, fingerprint, allowlist)
+
+    # Generate a deliberately synthetic value only in the temporary fixture.
+    fixture = tmp_path / "provider.py"
+    fixture.write_text(
+        line.replace("frozen.secret_key", repr("synthetic" * 5)), encoding="utf-8"
+    )
+    literal_findings = scan_file(fixture, patterns)
+    assert len(literal_findings) == 1
+    literal_pattern, _, _, literal_line, literal_fingerprint = literal_findings[0]
+    assert literal_fingerprint != fingerprint
+    assert not is_allowlisted(
+        path, literal_pattern, literal_line, literal_fingerprint, allowlist
     )
 
 
