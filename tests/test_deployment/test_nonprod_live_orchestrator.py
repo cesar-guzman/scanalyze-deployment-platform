@@ -426,6 +426,10 @@ def test_plan_intent_uses_complete_fixed_wrapper_command(
     ):
         assert option in argv
     assert argv[argv.index("--environment") + 1] == environment
+    assert not any(option in argv for option in (
+        "--infrastructure-selection", "--release-bundle", "--infrastructure-bindings",
+        "--expected-infrastructure-bindings-digest",
+    ))
     assert intent["expected_plan_path"] == "/runner/private/plan/network.tfplan"
     assert intent["workflow_run_attempt"] == 1
     assert intent["storage_mode"] == "CREATE_ONLY_KMS_VERSIONED"
@@ -444,6 +448,69 @@ def test_plan_intent_rejects_binding_and_path_substitution() -> None:
             expected_bindings=bindings,
             plan_inputs=_plan_inputs(),
         )
+
+
+def _infrastructure_plan_case(environment: str = "staging", layer: str = "platform"):
+    arguments = _context_arguments(environment)
+    arguments["layer"] = layer
+    context = build_live_context(**arguments)
+    bindings = {**_bindings(environment), "layer": layer}
+    inputs = {
+        **_plan_inputs(),
+        "infrastructure_selection": "/runner/private/sources/infrastructure-selection.json",
+        "release_bundle": "/runner/private/sources/release-bundle.json",
+        "infrastructure_bindings": "/runner/private/sources/infrastructure-bindings.json",
+        "expected_infrastructure_bindings_digest": _sha("8"),
+    }
+    return context, bindings, inputs
+
+
+@pytest.mark.parametrize("missing", [
+    "infrastructure_selection", "release_bundle", "infrastructure_bindings",
+    "expected_infrastructure_bindings_digest",
+])
+def test_infrastructure_plan_rejects_partial_transport(missing: str) -> None:
+    context, bindings, inputs = _infrastructure_plan_case()
+    inputs.pop(missing)
+    with pytest.raises(AuthorizationError, match="scope"):
+        build_plan_intent(context=context, expected_bindings=bindings, plan_inputs=inputs)
+
+
+def test_infrastructure_plan_rejects_unexpected_operational_input() -> None:
+    context, bindings, inputs = _infrastructure_plan_case()
+    inputs["replacement_variables"] = "/runner/private/unreviewed.json"
+    with pytest.raises(AuthorizationError, match="scope"):
+        build_plan_intent(context=context, expected_bindings=bindings, plan_inputs=inputs)
+
+
+@pytest.mark.parametrize("value", ["relative/bundle.json", "/runner/private/../bundle.json", "invalid\npath"])
+def test_infrastructure_plan_rejects_unsafe_bundle_path(value: str) -> None:
+    context, bindings, inputs = _infrastructure_plan_case()
+    inputs["release_bundle"] = value
+    with pytest.raises(AuthorizationError, match="path"):
+        build_plan_intent(context=context, expected_bindings=bindings, plan_inputs=inputs)
+
+
+def test_infrastructure_plan_rejects_source_path_collision() -> None:
+    context, bindings, inputs = _infrastructure_plan_case()
+    inputs["release_bundle"] = inputs["manifest"]
+    with pytest.raises(AuthorizationError, match="distinct"):
+        build_plan_intent(context=context, expected_bindings=bindings, plan_inputs=inputs)
+
+
+@pytest.mark.parametrize("digest", ["", "sha256:abc", _sha("g")])
+def test_infrastructure_plan_rejects_invalid_independent_pin(digest: str) -> None:
+    context, bindings, inputs = _infrastructure_plan_case()
+    inputs["expected_infrastructure_bindings_digest"] = digest
+    with pytest.raises(AuthorizationError, match="digest"):
+        build_plan_intent(context=context, expected_bindings=bindings, plan_inputs=inputs)
+
+
+@pytest.mark.parametrize(("environment", "layer"), [("dev", "platform"), ("staging", "network")])
+def test_infrastructure_plan_rejects_unreviewed_environment_or_layer(environment: str, layer: str) -> None:
+    context, bindings, inputs = _infrastructure_plan_case(environment, layer)
+    with pytest.raises(AuthorizationError, match="scope"):
+        build_plan_intent(context=context, expected_bindings=bindings, plan_inputs=inputs)
 
 
 def test_plan_intent_accepts_explicit_absent_initial_state() -> None:

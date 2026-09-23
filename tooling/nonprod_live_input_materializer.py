@@ -52,6 +52,8 @@ from tooling.validate_github_deployment_identity import (
     derive_oidc_subject,
     environment_configuration_digest,
 )
+from tooling.deployment_infrastructure_selection import bind_infrastructure_variables
+from tooling.release_policy_gate import build_deployment_projection
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -85,6 +87,150 @@ SOURCE_FILENAMES = {
     "github_deployment_identity": "github-deployment-identity.json",
     "github_environment_anchor": "github-environment-anchor.json",
 }
+INFRASTRUCTURE_SOURCE_FILENAMES = {
+    "release_bundle": "release-bundle.json",
+    "infrastructure_selection": "infrastructure-selection.json",
+    "infrastructure_bindings": "infrastructure-bindings.json",
+}
+INFRASTRUCTURE_VARIABLES = {
+    "platform": "internal_certificate_arn",
+    "edge-identity": "api_access_log_group_arn",
+    "edge": "route53_zone_id",
+}
+
+
+def source_filenames(version: str) -> dict[str, str]:
+    """Return one closed source layout; legacy v1 remains byte-compatible."""
+    if version == "1":
+        return dict(SOURCE_FILENAMES)
+    if version == "2":
+        return {**SOURCE_FILENAMES, **INFRASTRUCTURE_SOURCE_FILENAMES}
+    _fail("MATERIALIZATION_VERSION_INVALID")
+
+
+def read_live_infrastructure_source(path: Path) -> dict[str, Any]:
+    """Read one bounded private source once, without following the final link."""
+    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in items:
+            if key in result:
+                _fail("INFRASTRUCTURE_SOURCE_INVALID")
+            result[key] = value
+        return result
+
+    def reject_constant(_value: str) -> None:
+        _fail("INFRASTRUCTURE_SOURCE_INVALID")
+
+    descriptor: int | None = None
+    directory: int | None = None
+    try:
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        parent = os.fstat(directory)
+        if parent.st_uid != os.getuid() or stat.S_IMODE(parent.st_mode) != 0o700:
+            _fail("INFRASTRUCTURE_SOURCE_INVALID")
+        descriptor = os.open(
+            path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory,
+        )
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_nlink != 1
+            or not 2 <= metadata.st_size <= MAX_SEALED_REQUEST_BYTES
+        ):
+            _fail("INFRASTRUCTURE_SOURCE_INVALID")
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = None
+            content = stream.read(MAX_SEALED_REQUEST_BYTES + 1)
+            after = os.fstat(stream.fileno())
+            attributes = (
+                "st_dev", "st_ino", "st_uid", "st_mode", "st_nlink",
+                "st_size", "st_mtime_ns", "st_ctime_ns",
+            )
+            if len(content) != metadata.st_size or any(
+                getattr(metadata, name) != getattr(after, name) for name in attributes
+            ):
+                _fail("INFRASTRUCTURE_SOURCE_INVALID")
+        document = json.loads(content, object_pairs_hook=pairs, parse_constant=reject_constant)
+        if not isinstance(document, dict):
+            _fail("INFRASTRUCTURE_SOURCE_INVALID")
+        return document
+    except (OSError, UnicodeError, ValueError):
+        _fail("INFRASTRUCTURE_SOURCE_INVALID")
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if directory is not None:
+            os.close(directory)
+
+
+def bind_live_infrastructure(
+    *, selection: Mapping[str, Any], release_bundle: Mapping[str, Any],
+    bindings: Mapping[str, Any], expected_bindings_digest: str,
+    target: Mapping[str, Any], layer: str, release_digest: str,
+    now: datetime,
+) -> dict[str, str]:
+    """Reverify signed inputs and independent pins at both materialization and use."""
+    try:
+        selection, release_bundle, bindings, target = copy.deepcopy(
+            (dict(selection), dict(release_bundle), dict(bindings), dict(target))
+        )
+        expected_fields = {
+            "schema_version", "record_type", "layer", "target_digest",
+            "selection_digest", "release_manifest_digest", "release_policy_digest",
+            "release_projection_digest", "release_version",
+        }
+        if (
+            set(bindings) != expected_fields
+            or bindings["schema_version"] != "1"
+            or bindings["record_type"] != "live_infrastructure_bindings"
+            or bindings["layer"] != layer
+            or layer not in INFRASTRUCTURE_VARIABLES
+            or target.get("environment") != "staging"
+            or target.get("status") != "READY"
+            or now.tzinfo is None
+            or not DIGEST.fullmatch(expected_bindings_digest)
+            or canonical_digest(bindings) != expected_bindings_digest
+            or bindings["release_manifest_digest"] != release_digest
+            or set(release_bundle) != {"manifest", "attestation", "trust_policy"}
+        ):
+            _fail("INFRASTRUCTURE_TRANSPORT_BINDING_INVALID")
+        projection = build_deployment_projection(
+            release_bundle["manifest"], release_bundle["attestation"],
+            release_bundle["trust_policy"], target="staging",
+            expected_policy_digest=bindings["release_policy_digest"], evaluated_at=now,
+        )
+        if (
+            projection["release_manifest_digest"] != release_digest
+            or projection["release_version"] != bindings["release_version"]
+            or canonical_digest(projection) != bindings["release_projection_digest"]
+        ):
+            _fail("INFRASTRUCTURE_RELEASE_BINDING_INVALID")
+        variables = bind_infrastructure_variables(
+            selection, bindings["selection_digest"], target,
+            bindings["target_digest"], layer, projection,
+            bindings["release_projection_digest"],
+        )
+        if set(variables) != {INFRASTRUCTURE_VARIABLES[layer]}:
+            _fail("INFRASTRUCTURE_VARIABLE_SET_INVALID")
+        return variables
+    except LiveInputMaterializationError:
+        raise
+    except (ValueError, TypeError, KeyError, AttributeError, OverflowError, jsonschema.ValidationError):
+        _fail("INFRASTRUCTURE_TRANSPORT_INVALID")
+
+
+def merge_live_infrastructure_variables(
+    existing: Mapping[str, Any], **kwargs: Any,
+) -> dict[str, Any]:
+    """Add one selected root input without replacing contract-owned variables."""
+    variables = bind_live_infrastructure(**kwargs)
+    if not isinstance(existing, Mapping) or set(existing).intersection(variables):
+        _fail("INFRASTRUCTURE_VARIABLE_COLLISION")
+    return {**existing, **variables}
+
+
 OUTPUT_FILENAMES = (
     "context.json",
     "bindings.json",
@@ -980,12 +1126,21 @@ def _validate_sealed_request(
     claim: Mapping[str, Any],
     repo_root: Path,
 ) -> None:
+    version = sealed_request.get("schema_version")
+    if not isinstance(version, str) or version not in {"1", "2"}:
+        _fail("SEALED_REQUEST_INVALID")
     _validate_schema(
         sealed_request,
         repo_root=repo_root,
-        filename="nonprod-live-input-sealed-request.v1.schema.json",
+        filename=f"nonprod-live-input-sealed-request.v{version}.schema.json",
         error_code="SEALED_REQUEST_INVALID",
     )
+    if version == "2" and (
+        claim.get("environment") != "staging"
+        or claim.get("layer") not in INFRASTRUCTURE_VARIABLES
+        or len(_json_bytes(sealed_request, compact=True)) > MAX_SEALED_REQUEST_BYTES
+    ):
+        _fail("INFRASTRUCTURE_TRANSPORT_SCOPE_INVALID")
     if sealed_request.get("sealed_request_digest") != stable_sealed_request_digest(
         sealed_request
     ):
@@ -1252,14 +1407,16 @@ def _build_bindings(
     return bindings
 
 
-def _source_paths(private_root: Path) -> dict[str, str]:
+def _source_paths(private_root: Path, version: str = "1") -> dict[str, str]:
     base = private_root / MATERIALIZED_DIR_NAME / SOURCE_DIR_NAME
-    return {key: str(base / filename) for key, filename in SOURCE_FILENAMES.items()}
+    return {key: str(base / filename) for key, filename in source_filenames(version).items()}
 
 
-def _input_maps(private_root: Path) -> tuple[dict[str, str], dict[str, str]]:
+def _input_maps(
+    private_root: Path, version: str = "1", infrastructure_bindings_digest: str | None = None,
+) -> tuple[dict[str, str], dict[str, str]]:
     materialized = private_root / MATERIALIZED_DIR_NAME
-    sources = _source_paths(private_root)
+    sources = _source_paths(private_root, version)
     plan = {
         "plan_dir": str(materialized / PLAN_DIR_NAME),
         "resolved_input": sources["contract_resolution"],
@@ -1269,6 +1426,11 @@ def _input_maps(private_root: Path) -> tuple[dict[str, str], dict[str, str]]:
         "account_ready": sources["account_ready"],
         "execution_lock": sources["execution_lock"],
     }
+    if version == "2":
+        if not isinstance(infrastructure_bindings_digest, str) or not DIGEST.fullmatch(infrastructure_bindings_digest):
+            _fail("INFRASTRUCTURE_TRANSPORT_BINDING_INVALID")
+        plan.update({key: sources[key] for key in INFRASTRUCTURE_SOURCE_FILENAMES})
+        plan["expected_infrastructure_bindings_digest"] = infrastructure_bindings_digest
     controller = materialized / CONTROLLER_DIR_NAME
     apply = {
         "apply_intent": str(controller / "apply-intent.json"),
@@ -1333,6 +1495,7 @@ def materialize_live_inputs(
         now=now,
         repo_root=repo_root,
     )
+    sealed_request = copy.deepcopy(dict(sealed_request))
     _validate_sealed_request(sealed_request, claim=claim, repo_root=repo_root)
     cost_model = _validate_cost_guard(
         claim=claim,
@@ -1373,6 +1536,40 @@ def materialize_live_inputs(
         now=now,
         repo_root=repo_root,
     )
+    version = sealed_request["schema_version"]
+    filenames = source_filenames(version)
+    source_documents = {
+        key: copy.deepcopy(sources[key]) for key in filenames
+        if key not in {"infrastructure_bindings", "release_bundle"}
+    }
+    infrastructure_digest = None
+    if version == "2":
+        release = sealed_request["release_bindings"]
+        root = _validate_private_root(private_root, repo_root)
+        bundle = read_live_infrastructure_source(root / "release-bundle.json")
+        if canonical_digest(bundle) != release["release_bundle_digest"]:
+            _fail("INFRASTRUCTURE_BUNDLE_DIGEST_MISMATCH")
+        source_documents["release_bundle"] = bundle
+        infrastructure = {
+            "schema_version": "1",
+            "record_type": "live_infrastructure_bindings",
+            "layer": layer,
+            "target_digest": sources["target_anchor"]["record_digest"],
+            "selection_digest": release["infrastructure_selection_digest"],
+            "release_manifest_digest": claim["release_digest"],
+            "release_policy_digest": release["release_policy_digest"],
+            "release_projection_digest": release["release_projection_digest"],
+            "release_version": release["release_version"],
+        }
+        infrastructure_digest = canonical_digest(infrastructure)
+        bind_live_infrastructure(
+            selection=source_documents["infrastructure_selection"],
+            release_bundle=source_documents["release_bundle"],
+            bindings=infrastructure, expected_bindings_digest=infrastructure_digest,
+            target=source_documents["target_record"], layer=layer,
+            release_digest=claim["release_digest"], now=now,
+        )
+        source_documents["infrastructure_bindings"] = infrastructure
     context = _build_context(
         claim=claim,
         sealed_request=sealed_request,
@@ -1385,11 +1582,7 @@ def materialize_live_inputs(
         context=context,
         backend_binding=backend_binding,
     )
-    plan_inputs, apply_inputs = _input_maps(private_root)
-
-    source_documents = {
-        key: copy.deepcopy(sources[key]) for key in SOURCE_FILENAMES
-    }
+    plan_inputs, apply_inputs = _input_maps(private_root, version, infrastructure_digest)
     source_digests = {
         key: canonical_digest(dict(document))
         for key, document in sorted(source_documents.items())
@@ -1407,7 +1600,7 @@ def materialize_live_inputs(
     plan_ready = operation == "plan"
     durable_readback_required = operation == "apply"
     manifest: dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": version,
         "record_type": "nonprod_live_input_materialization_manifest",
         "operation": operation,
         "layer": layer,
@@ -1445,7 +1638,7 @@ def materialize_live_inputs(
     }
     manifest["manifest_digest"] = canonical_digest(manifest)
     receipt: dict[str, Any] = {
-        "schema_version": "1",
+        "schema_version": version,
         "record_type": "nonprod_live_input_materialization_receipt",
         "status": "MATERIALIZED",
         "code": "LIVE_INPUTS_MATERIALIZED",
@@ -1498,12 +1691,13 @@ def materialize_live_inputs(
     )
 
 
-def _json_bytes(document: Mapping[str, Any]) -> bytes:
+def _json_bytes(document: Mapping[str, Any], *, compact: bool = False) -> bytes:
     return (
         json.dumps(
             document,
             sort_keys=True,
-            indent=2,
+            indent=None if compact else 2,
+            separators=(",", ":") if compact else None,
             ensure_ascii=True,
             allow_nan=False,
         )
@@ -1558,10 +1752,11 @@ def persist_materialized_live_inputs(
         plan_root.mkdir(mode=0o700)
         created_dirs.append(plan_root)
 
-        for key, filename in SOURCE_FILENAMES.items():
+        version = materialization.documents["manifest.json"]["schema_version"]
+        for key, filename in source_filenames(version).items():
             destination = source_root / filename
             _write_exclusive(
-                destination, _json_bytes(materialization.source_documents[key])
+                destination, _json_bytes(materialization.source_documents[key], compact=version == "2")
             )
             created_files.append(destination)
         for filename in OUTPUT_FILENAMES:
@@ -1603,6 +1798,7 @@ def validate_materialized_live_inputs(
 ) -> None:
     """Rebuild-and-compare every fixed output and reject controller prefill."""
     output_root = private_root / MATERIALIZED_DIR_NAME
+    filenames = source_filenames(expected.documents["manifest.json"]["schema_version"])
     for directory in (
         output_root,
         output_root / SOURCE_DIR_NAME,
@@ -1627,14 +1823,14 @@ def validate_materialized_live_inputs(
         _fail("MATERIALIZED_OUTPUT_INVALID")
     if {
         path.name for path in (output_root / SOURCE_DIR_NAME).iterdir()
-    } != set(SOURCE_FILENAMES.values()):
+    } != set(filenames.values()):
         _fail("MATERIALIZED_OUTPUT_INVALID")
     if any((output_root / CONTROLLER_DIR_NAME).iterdir()) or any(
         (output_root / PLAN_DIR_NAME).iterdir()
     ):
         _fail("CONTROLLER_INPUT_PREPOPULATED")
 
-    for key, filename in SOURCE_FILENAMES.items():
+    for key, filename in filenames.items():
         actual = _read_private_output(output_root / SOURCE_DIR_NAME / filename)
         if actual != dict(expected.source_documents[key]):
             _fail("MATERIALIZED_OUTPUT_MISMATCH")
