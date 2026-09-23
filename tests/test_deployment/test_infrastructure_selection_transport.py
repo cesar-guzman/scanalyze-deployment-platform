@@ -64,7 +64,7 @@ def _selection(target: dict, projection: dict, layer: str) -> dict:
                 "arn": f"arn:aws:logs:{region}:{account}:log-group:/synthetic/api-access",
                 "target_layer": "edge-identity",
             },
-            "route53_zone_id": {"zone_id": "ZSYNTHETIC123456789", "target_layer": "edge"},
+            "route53_zone_id": {"zone_id": "Z1111111111111", "target_layer": "edge"},
         },
     }
     for item in document["selections"].values():
