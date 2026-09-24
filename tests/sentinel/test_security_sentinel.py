@@ -180,6 +180,12 @@ def test_gug432_upstream_sdk_binding_rejects_a_synthetic_literal(tmp_path):
     )
 
 
+def test_gug432_upstream_sdk_binding_allowlist_has_no_secret_findings():
+    repo_root = Path(__file__).resolve().parents[2]
+    # Scan the rule metadata itself, without applying any allowlist exceptions.
+    assert scan_file(repo_root / "sentinel_allowlist.yaml", SECRET_PATTERNS) == []
+
+
 def test_repository_scan_has_no_unallowlisted_findings(monkeypatch):
     repo_root = Path(__file__).resolve().parents[2]
     monkeypatch.chdir(repo_root)

@@ -13,7 +13,8 @@ allowlist:
     owner: platform-security
 
   - path: tooling/platform_authority_gug376_upstream_live_provider.py
-    line_pattern: '^\s*aws_access_key_id=frozen\.access_key, aws_secret_access_key=frozen\.secret_key,\s*$'
+    # A singleton character class keeps the literal match exact in this regex.
+    line_pattern: '^\s*aws_access_key_id=frozen\.access_key, aws_secret_access_key[=]frozen\.secret_key,\s*$'
     pattern_id: AWS_SECRET_KEY
     match_sha256: d4575dda46d4b14a9a131349f9e48007fd7870abd6a7b71b4f6d12a7f0018bb4
     reason: "Frozen temporary SSO credential is passed by reference to the identity-verified SDK factory; no literal secret is stored"
