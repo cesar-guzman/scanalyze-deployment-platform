@@ -9,6 +9,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from tooling.check_microservices import check_ocr_hermetic_contract
 
 
@@ -345,7 +347,13 @@ def reconcile_tool_env(
     }, aws_log
 
 
-def publish_tool_env(tmp_path: Path, digest: str) -> tuple[dict[str, str], Path, Path]:
+def publish_tool_env(
+    tmp_path: Path,
+    digest: str,
+    *,
+    aws_login_status: int = 0,
+    docker_login_status: int = 0,
+) -> tuple[dict[str, str], Path, Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     aws_log = tmp_path / "aws.log"
@@ -366,7 +374,12 @@ def publish_tool_env(tmp_path: Path, digest: str) -> tuple[dict[str, str], Path,
         bin_dir / "docker",
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
-        "printf '%s\\n' \"$*\" >> \"$DOCKER_LOG\"\n",
+        "printf '%s\\n' \"$*\" >> \"$DOCKER_LOG\"\n"
+        "if [[ \"${1:-}\" == \"login\" ]]; then\n"
+        # Model --password-stdin without storing or logging its input.
+        "  cat >/dev/null\n"
+        f"  exit {docker_login_status}\n"
+        "fi\n",
     )
     make_executable(
         bin_dir / "aws",
@@ -377,7 +390,10 @@ def publish_tool_env(tmp_path: Path, digest: str) -> tuple[dict[str, str], Path,
         "  sts:get-caller-identity) printf '%s\\n' '123456789012' ;;\n"
         "  ecr:describe-repositories) printf '%s\\n' 'IMMUTABLE' ;;\n"
         "  ecr:batch-get-image) printf '%s\\n' '0' ;;\n"
-        "  ecr:get-login-password) printf '%s\\n' 'token' ;;\n"
+        # Exceed common pipe buffers to expose a login double that skips stdin.
+        "  ecr:get-login-password)\n"
+        "    printf '%131072s\\n' 'synthetic-login-input'\n"
+        f"    exit {aws_login_status} ;;\n"
         f"  ecr:describe-images) printf '%s\\n' '{digest}' ;;\n"
         "  *) exit 99 ;;\n"
         "esac\n",
@@ -1259,8 +1275,62 @@ def test_push_happy_path_builds_and_verifies_digest_without_ssm(tmp_path: Path) 
     assert "login --username AWS --password-stdin" in docker_calls
     assert "build --platform linux/amd64" in docker_calls
     assert "push 123456789012.dkr.ecr.us-east-1.amazonaws.com/" in docker_calls
-    assert "ssm put-parameter" not in aws_log.read_text(encoding="utf-8")
+    aws_calls = aws_log.read_text(encoding="utf-8")
+    assert "ssm put-parameter" not in aws_calls
     assert digest in result.stdout
+    for output in (result.stdout, result.stderr, docker_calls, aws_calls):
+        assert "synthetic-login-input" not in output
+
+
+@pytest.mark.parametrize(
+    ("aws_login_status", "docker_login_status", "expected_status"),
+    [(42, 0, 42), (0, 43, 43)],
+    ids=["aws-login-fails", "docker-login-fails"],
+)
+def test_push_login_failure_stops_before_build_or_push(
+    tmp_path: Path,
+    aws_login_status: int,
+    docker_login_status: int,
+    expected_status: int,
+) -> None:
+    digest = f"sha256:{'d' * 64}"
+    env, aws_log, docker_log = publish_tool_env(
+        tmp_path,
+        digest,
+        aws_login_status=aws_login_status,
+        docker_login_status=docker_login_status,
+    )
+    result = run_script(
+        BUILD_SCRIPT,
+        "--service",
+        "ingest-api",
+        "--account-id",
+        "123456789012",
+        "--region",
+        "us-east-1",
+        "--deployment-id",
+        "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "--ecr-prefix",
+        "dep-01arz3ndektsv4rrffq69g5fav/scanalyze",
+        "--tag",
+        "sha-test",
+        "--base-image",
+        f"123456789012.dkr.ecr.us-east-1.amazonaws.com/base-images/python@sha256:{'e' * 64}",
+        "--push",
+        "--no-write-ssm",
+        env=env,
+    )
+
+    assert result.returncode == expected_status, result.stderr
+    docker_calls = docker_log.read_text(encoding="utf-8")
+    assert "login --username AWS --password-stdin" in docker_calls
+    assert "build " not in docker_calls
+    assert "push " not in docker_calls
+    aws_calls = aws_log.read_text(encoding="utf-8")
+    assert "ecr describe-images" not in aws_calls
+    assert "ssm put-parameter" not in aws_calls
+    for output in (result.stdout, result.stderr, docker_calls, aws_calls):
+        assert "synthetic-login-input" not in output
 
 
 def test_git_safety_reads_staged_bytes_from_index(tmp_path: Path) -> None:
