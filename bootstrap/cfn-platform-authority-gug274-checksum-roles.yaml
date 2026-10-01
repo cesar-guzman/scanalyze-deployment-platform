@@ -1,0 +1,206 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Local review design for two dedicated GUG-274 checksum writer roles; no job execution or custody activation.
+Metadata:
+  DesignScope: Proposed new roles only. Existence, name availability, effective permissions and deployment are unverified.
+  ActivationLimit: Role creation would not enable the Batch evidence contract, create a job, grant PassRole, activate a trail or authorize artifact acceptance.
+  ProvisioningSequence: ManifestOnly creates only the manifest writer and requires empty unconfigured Batch bindings. After a separately approved manifest upload returns its actual version, update the same stack to BatchBound with all real reviewed bindings to create the Batch writer. Empty bindings are never used in a created Batch policy.
+  StageRollbackLimit: Retain also applies when a condition removes a resource. Returning from BatchBound to ManifestOnly does not revoke the Batch role and can leave it outside stack management; do not use a stage downgrade as automatic rollback.
+  HumanEntryLimit: The human invoker has no default. Its exact identity, ownership, AssumeRole permissions and shared-role scope require separate review.
+  ExcludedHumanEntries: The two generated writer roles and the observed SSO reading, signing, bootstrap and retirement role-name prefixes cannot be supplied as the human invoker. Administrator names are not automatically selected or categorically rejected.
+  VersionOnlyCompatibility: Batch grants only GetObjectVersion for explicitly bound source and manifest versions. If the provider requires unversioned GetObject or RestoreObject, stop for review rather than widen the policy automatically.
+  ManifestObservationLimit: Manifest writer can observe version metadata through ListBucketVersions and the upload response. It receives no GetObject or GetObjectVersion content-read permission.
+  KmsContextLimit: The source uses an S3 Bucket Key. KMS encryption context is therefore the fixed artifact bucket ARN; exact object and version restrictions are enforced separately by the S3 identity statements.
+  References:
+    - https://docs.aws.amazon.com/AmazonS3/latest/userguide/batch-ops-iam-role-policies.html
+    - https://docs.aws.amazon.com/AmazonS3/latest/userguide/amazon-s3-policy-keys.html
+    - https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucket-key.html
+    - https://docs.aws.amazon.com/kms/latest/developerguide/conditions-kms.html
+    - https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-iam-role.html
+Parameters:
+  DeploymentStage:
+    Type: String
+    Default: ManifestOnly
+    AllowedValues: [ManifestOnly, BatchBound]
+    Description: ManifestOnly cannot create a Batch role. BatchBound requires every actual reviewed binding; neither stage executes a job or activates checksum evidence.
+  TemplateDigest:
+    Type: String
+    AllowedPattern: '^[a-f0-9]{64}$'
+    Description: SHA-256 of these exact reviewed template bytes; this tag is not authenticated provenance.
+  ApprovedHumanInvokerRoleArn:
+    Type: String
+    AllowedPattern: '^arn:aws:iam::042360977644:role/(?!.*AWSReservedSSO_(?:AWSReadOnlyAccess|ReadOnlyAccess|ScanalyzeReleaseVsaSign|ScanalyzeAuthorityBootApprove|ScanalyzeAuthorityBootstrapApply|ScanalyzeAuthorityBootstrapPlan|ScanalyzeAuthorityRetireApprove|ScanalyzeAuthorityRetireClass)_)([A-Za-z0-9_+=,.@-]+/)*[A-Za-z0-9_+=,.@-]{1,64}$'
+    MaxLength: 600
+    Description: Exact existing separately reviewed human entry role in account 042360977644. No default, wildcard principal, automatic administrator selection or permission-set change.
+  SignedArtifactKey:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(?:|scanalyze/platform-authority/gug-274/signed/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}[.]zip)$'
+    Description: Empty only while ManifestOnly; one real separately reviewed signed artifact key is required for BatchBound. No candidate is adopted automatically.
+  SignedArtifactVersionId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(?:|(?!null$).+)$'
+    Description: Empty only while ManifestOnly; BatchBound requires the actual opaque non-null source version. Verify existence and encryption independently.
+  ArtifactKmsKeyArn:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(?:|arn:aws:kms:us-east-1:042360977644:key/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$'
+    Description: Empty only while ManifestOnly; BatchBound requires one reviewed existing symmetric artifact KMS key in account 042360977644 and us-east-1. No key-policy/grant mutation.
+  InputManifestKey:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(?:|scanalyze/platform-authority/gug-274/checksum/manifests/[A-Za-z0-9._-]+[.]csv)$'
+    Description: Empty only while ManifestOnly; BatchBound requires one actual reviewed input CSV key. No report key, path traversal, generator or inventory manifest.
+  InputManifestVersionId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(?:|(?!null$).+)$'
+    Description: Empty only while ManifestOnly; BatchBound requires the actual opaque non-null input manifest version, not a source/report version or placeholder.
+  ReviewedReportRunId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(?:|[a-z0-9][a-z0-9-]{0,63})$'
+    Description: Empty only while ManifestOnly; BatchBound requires one reviewed reports/ namespace. Not a job ID, activation flag or producer proof.
+Rules:
+  ExactInstallationScope:
+    Assertions:
+      - Assert: !Equals [!Ref AWS::AccountId, '042360977644']
+        AssertDescription: Create proposed roles only in the platform authority account.
+      - Assert: !Equals [!Ref AWS::Region, us-east-1]
+        AssertDescription: Review and create these roles only in us-east-1.
+  HumanInvokerMustNotBeGeneratedWriter:
+    Assertions:
+      - Assert: !Not
+          - !Contains
+            - - arn:aws:iam::042360977644:role/scanalyze/platform-authority/ScanalyzeGug274ChecksumManifestWriter
+              - arn:aws:iam::042360977644:role/scanalyze/platform-authority/ScanalyzeGug274ChecksumBatchWriter
+            - !Ref ApprovedHumanInvokerRoleArn
+        AssertDescription: Never use the manifest writer itself or the Batch writer as the human entry principal.
+  ManifestOnlyHasNoBatchBindings:
+    RuleCondition: !Equals [!Ref DeploymentStage, ManifestOnly]
+    Assertions:
+      - Assert: !Equals [!Ref SignedArtifactKey, '']
+        AssertDescription: ManifestOnly keeps the signed source key unconfigured.
+      - Assert: !Equals [!Ref SignedArtifactVersionId, '']
+        AssertDescription: ManifestOnly keeps the signed source version unconfigured.
+      - Assert: !Equals [!Ref ArtifactKmsKeyArn, '']
+        AssertDescription: ManifestOnly keeps the artifact KMS key unconfigured.
+      - Assert: !Equals [!Ref InputManifestKey, '']
+        AssertDescription: ManifestOnly keeps the Batch manifest key unconfigured.
+      - Assert: !Equals [!Ref InputManifestVersionId, '']
+        AssertDescription: ManifestOnly keeps the Batch manifest version unconfigured.
+      - Assert: !Equals [!Ref ReviewedReportRunId, '']
+        AssertDescription: ManifestOnly keeps the Batch report namespace unconfigured.
+  BatchBoundRequiresEveryActualBinding:
+    RuleCondition: !Equals [!Ref DeploymentStage, BatchBound]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref SignedArtifactKey, '']]
+        AssertDescription: BatchBound requires one actual reviewed source key.
+      - Assert: !Not [!Equals [!Ref SignedArtifactVersionId, '']]
+        AssertDescription: BatchBound requires one actual non-null source version.
+      - Assert: !Not [!Equals [!Ref ArtifactKmsKeyArn, '']]
+        AssertDescription: BatchBound requires one actual reviewed artifact KMS key.
+      - Assert: !Not [!Equals [!Ref InputManifestKey, '']]
+        AssertDescription: BatchBound requires the actual reviewed uploaded CSV key.
+      - Assert: !Not [!Equals [!Ref InputManifestVersionId, '']]
+        AssertDescription: BatchBound requires the actual version returned by the separately approved manifest upload, never a sentinel or fake version.
+      - Assert: !Not [!Equals [!Ref ReviewedReportRunId, '']]
+        AssertDescription: BatchBound requires the exact reviewed report namespace.
+Conditions:
+  StageBatchBound: !Equals [!Ref DeploymentStage, BatchBound]
+Resources:
+  ManifestWriterRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RoleName: ScanalyzeGug274ChecksumManifestWriter
+      Path: /scanalyze/platform-authority/
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {AWS: !Ref ApprovedHumanInvokerRoleArn}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReviewedManifestNamespaceOnly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: WriteReviewedManifestNamespace
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: arn:aws:s3:::scanalyze-gug274-checksum-reports-042360977644-us-east-1/scanalyze/platform-authority/gug-274/checksum/manifests/*
+                Condition:
+                  Bool: {aws:SecureTransport: 'true'}
+              - Sid: ObserveManifestVersionMetadata
+                Effect: Allow
+                Action: s3:ListBucketVersions
+                Resource: arn:aws:s3:::scanalyze-gug274-checksum-reports-042360977644-us-east-1
+                Condition:
+                  Bool: {aws:SecureTransport: 'true'}
+                  StringLike:
+                    s3:prefix: scanalyze/platform-authority/gug-274/checksum/manifests/*
+      Tags:
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-274}
+        - {Key: purpose, Value: checksum-manifest-writer}
+        - {Key: template_sha256, Value: !Ref TemplateDigest}
+  BatchWriterRole:
+    Type: AWS::IAM::Role
+    Condition: StageBatchBound
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RoleName: ScanalyzeGug274ChecksumBatchWriter
+      Path: /scanalyze/platform-authority/
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: batchoperations.s3.amazonaws.com}
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReviewedVersionChecksumOnly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadExactSignedArtifactVersion
+                Effect: Allow
+                Action: s3:GetObjectVersion
+                Resource: !Sub 'arn:aws:s3:::scanalyze-gug274-artifacts-042360977644-us-east-1/${SignedArtifactKey}'
+                Condition:
+                  StringEquals: {s3:VersionId: !Ref SignedArtifactVersionId}
+              - Sid: ReadExactManifestVersion
+                Effect: Allow
+                Action: s3:GetObjectVersion
+                Resource: !Sub 'arn:aws:s3:::scanalyze-gug274-checksum-reports-042360977644-us-east-1/${InputManifestKey}'
+                Condition:
+                  StringEquals: {s3:VersionId: !Ref InputManifestVersionId}
+              - Sid: WriteReviewedReportNamespace
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub 'arn:aws:s3:::scanalyze-gug274-checksum-reports-042360977644-us-east-1/scanalyze/platform-authority/gug-274/checksum/reports/${ReviewedReportRunId}/*'
+              - Sid: DecryptArtifactThroughS3BucketKey
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Ref ArtifactKmsKeyArn
+                Condition:
+                  StringEquals:
+                    kms:ViaService: s3.us-east-1.amazonaws.com
+                    kms:EncryptionContext:aws:s3:arn: arn:aws:s3:::scanalyze-gug274-artifacts-042360977644-us-east-1
+      Tags:
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-274}
+        - {Key: purpose, Value: checksum-batch-writer}
+        - {Key: template_sha256, Value: !Ref TemplateDigest}
+Outputs:
+  ProposedManifestWriterRoleArn:
+    Description: Created role ARN only after separately authorized provisioning and readback; not producer evidence.
+    Value: !GetAtt ManifestWriterRole.Arn
+  ProposedBatchWriterRoleArn:
+    Condition: StageBatchBound
+    Description: Created role ARN only after separately authorized provisioning and readback; not a passed role or executed job.
+    Value: !GetAtt BatchWriterRole.Arn

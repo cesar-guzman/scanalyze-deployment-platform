@@ -57,11 +57,14 @@ from tooling.platform_authority_bootstrap_artifact_package import (  # noqa: E40
     sdk_runtime_root_from_environment,
 )
 from tooling.platform_authority_bootstrap_signed_artifact import (  # noqa: E402
+    BATCH_SHA256_SOURCE,
     EXPECTED_VERIFIER_PROFILE,
+    NATIVE_SHA256_SOURCE,
     REGION,
     BootstrapSignedArtifactError,
     build_signed_artifact_receipt_from_aws,
     load_signing_trust_root_contract,
+    require_signed_checksum_source,
     verify_reviewed_source_release,
     write_signed_artifact_receipt,
 )
@@ -125,6 +128,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expected-boto3-version", required=True)
     parser.add_argument("--expected-botocore-version", required=True)
     parser.add_argument("--job-id", required=True)
+    parser.add_argument(
+        "--signed-checksum-source",
+        default=NATIVE_SHA256_SOURCE,
+        choices=(NATIVE_SHA256_SOURCE, BATCH_SHA256_SOURCE),
+        help=(
+            "Native SHA256 is the accepted v1 route. S3 Batch compatibility "
+            "is preparatory and stops before SDK/provider reads until report "
+            "provenance and its dialect are reviewed and implemented."
+        ),
+    )
     parser.add_argument("--output-receipt", required=True, type=Path)
     return parser.parse_args()
 
@@ -140,6 +153,9 @@ def main() -> int:
     args = parse_args()
     try:
         _require_closed_sdk_environment()
+        require_signed_checksum_source(
+            source_root=ROOT, checksum_source=args.signed_checksum_source
+        )
         sdk_root = sdk_runtime_root_from_environment()
         load_signing_trust_root_contract(
             source_root=ROOT, require_configured=True
@@ -178,6 +194,7 @@ def main() -> int:
             sts_client=session.client("sts", config=config, verify=True),
             signer_client=session.client("signer", config=config, verify=True),
             s3_client=session.client("s3", config=config, verify=True),
+            checksum_source=args.signed_checksum_source,
         )
         write_signed_artifact_receipt(
             receipt=receipt,

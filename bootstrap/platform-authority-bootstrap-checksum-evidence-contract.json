@@ -1,0 +1,20 @@
+{
+  "artifact_type": "scanalyze.platform_authority.bootstrap_checksum_evidence_contract.v1",
+  "schema_version": 1,
+  "work_package": "GUG-274",
+  "authority_account_id": "042360977644",
+  "region": "us-east-1",
+  "configuration_status": "NOT_CONFIGURED",
+  "activation_authorized": false,
+  "signed_checksum_source": "s3-batch-sha256",
+  "checksum_algorithm": "SHA256",
+  "checksum_type": "FULL_OBJECT",
+  "intended_receipt_schema_version": 2,
+  "report_schema": null,
+  "report_producer_verifier": null,
+  "blocking_requirements": [
+    "REPORT_PRODUCER_PROVENANCE_UNPROVEN",
+    "REPORT_DIALECT_NOT_REVIEWED"
+  ],
+  "production_status": "NO-GO"
+}

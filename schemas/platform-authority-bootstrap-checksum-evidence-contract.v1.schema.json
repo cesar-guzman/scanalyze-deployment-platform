@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scanalyze.dev/schemas/platform-authority-bootstrap-checksum-evidence-contract.v1.schema.json",
+  "title": "GUG-274 disabled checksum compatibility contract v1",
+  "description": "A source-owned preparation contract. This is not a signed-artifact receipt and cannot enable provider acceptance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_type", "schema_version", "work_package", "authority_account_id",
+    "region", "configuration_status", "activation_authorized",
+    "signed_checksum_source", "checksum_algorithm", "checksum_type",
+    "intended_receipt_schema_version", "report_schema", "report_producer_verifier",
+    "blocking_requirements", "production_status"
+  ],
+  "properties": {
+    "artifact_type": {"const": "scanalyze.platform_authority.bootstrap_checksum_evidence_contract.v1"},
+    "schema_version": {"type": "integer", "const": 1},
+    "work_package": {"const": "GUG-274"},
+    "authority_account_id": {"const": "042360977644"},
+    "region": {"const": "us-east-1"},
+    "configuration_status": {"const": "NOT_CONFIGURED"},
+    "activation_authorized": {"const": false},
+    "signed_checksum_source": {"const": "s3-batch-sha256"},
+    "checksum_algorithm": {"const": "SHA256"},
+    "checksum_type": {"const": "FULL_OBJECT"},
+    "intended_receipt_schema_version": {"type": "integer", "const": 2},
+    "report_schema": {"type": "null"},
+    "report_producer_verifier": {"type": "null"},
+    "blocking_requirements": {
+      "type": "array",
+      "const": ["REPORT_PRODUCER_PROVENANCE_UNPROVEN", "REPORT_DIALECT_NOT_REVIEWED"]
+    },
+    "production_status": {"const": "NO-GO"}
+  }
+}

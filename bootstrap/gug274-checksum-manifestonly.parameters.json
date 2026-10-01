@@ -1,0 +1,38 @@
+[
+  {
+    "ParameterKey": "DeploymentStage",
+    "ParameterValue": "ManifestOnly"
+  },
+  {
+    "ParameterKey": "TemplateDigest",
+    "ParameterValue": "33c96276a16bf8149e374d943707fc198fabfa71feea07915b01e7c07ce5e556"
+  },
+  {
+    "ParameterKey": "ApprovedHumanInvokerRoleArn",
+    "ParameterValue": "arn:aws:iam::042360977644:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_AWSAdministratorAccess_a79151b0e0ce8501"
+  },
+  {
+    "ParameterKey": "SignedArtifactKey",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "SignedArtifactVersionId",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "ArtifactKmsKeyArn",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "InputManifestKey",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "InputManifestVersionId",
+    "ParameterValue": ""
+  },
+  {
+    "ParameterKey": "ReviewedReportRunId",
+    "ParameterValue": ""
+  }
+]

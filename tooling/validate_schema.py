@@ -75,6 +75,7 @@ def find_schema_for_fixture(fixture_name: str, schemas_dir: Path) -> Path | None
         "platform-authority-bootstrap-artifact-authority": "platform-authority-bootstrap-artifact-authority.v{version}.schema.json",
         "platform-authority-bootstrap-artifact-package": "platform-authority-bootstrap-artifact-package.v{version}.schema.json",
         "platform-authority-bootstrap-artifact-signing-trust-root": "platform-authority-bootstrap-artifact-signing-trust-root.v{version}.schema.json",
+        "platform-authority-bootstrap-checksum-evidence-contract": "platform-authority-bootstrap-checksum-evidence-contract.v{version}.schema.json",
         "platform-authority-bootstrap-identity-proof-receipt": "platform-authority-bootstrap-identity-proof-receipt.v{version}.schema.json",
         "platform-authority-bootstrap-plan": "platform-authority-bootstrap-plan.v{version}.schema.json",
         "platform-authority-bootstrap-signed-artifact-receipt": "platform-authority-bootstrap-signed-artifact-receipt.v{version}.schema.json",
@@ -3725,6 +3726,20 @@ def _validate_gug274_signed_artifact_receipt(
     return []
 
 
+def _validate_gug274_checksum_evidence_contract(instance: dict) -> list[str]:
+    """Preparation is never interpreted as provider acceptance or activation."""
+
+    from tooling.platform_authority_bootstrap_signed_artifact import (
+        BootstrapSignedArtifactError,
+        validate_checksum_evidence_contract,
+    )
+    try:
+        validate_checksum_evidence_contract(instance)
+    except BootstrapSignedArtifactError as exc:
+        return [f"GUG-274 checksum evidence contract invalid: {exc}"]
+    return []
+
+
 def _validate_gug390_live_run(instance: dict) -> list[str]:
     """Reject stale seals and cross-field AWS/mutation overclaims."""
 
@@ -4088,6 +4103,9 @@ def validate_semantics(
                 instance, evaluation_at=evaluation_at
             )
         )
+
+    if schema_name == "platform-authority-bootstrap-checksum-evidence-contract.v1.schema.json":
+        errors.extend(_validate_gug274_checksum_evidence_contract(instance))
 
     if schema_name in {
         "platform-authority-bootstrap-authority-receipt.v1.schema.json",
