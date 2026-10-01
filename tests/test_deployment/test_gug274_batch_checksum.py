@@ -354,12 +354,22 @@ def test_canonical_url_encoding_preserves_literal_plus_and_space() -> None:
     assert validate_batch_checksum_readbacks(**args)["signed_object"]["key"] == signed.key
 
 
+# Keep multi-megabyte boundary inputs out of verbose pytest node IDs.
 @pytest.mark.parametrize(("field", "raw"), [
     ("manifest_bytes", b"x" * (MAX_MANIFEST_BYTES + 1)),
     ("report_manifest_bytes", b"x" * (MAX_REPORT_MANIFEST_BYTES + 1)),
     ("report_csv_bytes", b"x" * (MAX_REPORT_CSV_BYTES + 1)),
     ("signed_object_bytes", b"x" * (MAX_SIGNED_OBJECT_BYTES + 1)),
     ("manifest_bytes", b""), ("report_manifest_bytes", b""), ("report_csv_bytes", b""), ("signed_object_bytes", b""),
+], ids=[
+    "manifest-oversize",
+    "report-manifest-oversize",
+    "report-csv-oversize",
+    "signed-object-oversize",
+    "manifest-empty",
+    "report-manifest-empty",
+    "report-csv-empty",
+    "signed-object-empty",
 ])
 def test_bytes_are_nonempty_and_bounded(field: str, raw: bytes) -> None:
     args = _arguments()
