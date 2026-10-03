@@ -1,0 +1,275 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Local design for dedicated GUG-274 checksum report storage and a stopped custody trail.
+Metadata:
+  DesignScope: Proposed resources only; names and role existence are unverified. No deployment or logging activation is authorized by this template.
+  CustodyLimit: Administrators can change policies. These controls alone do not establish historical writer identity or authorize a receipt.
+  RolePrerequisite: Review the supplied roles, identity permissions, trust and PassRole separately before any deployment. This template grants none of those permissions.
+  References:
+    - https://docs.aws.amazon.com/awscloudtrail/latest/userguide/create-s3-bucket-policy-for-cloudtrail.html
+    - https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-validation-digest-file-structure.html
+    - https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_condition-keys.html
+Parameters:
+  ReportBucketName:
+    Type: String
+    Default: scanalyze-gug274-checksum-reports-042360977644-us-east-1
+    AllowedValues: [scanalyze-gug274-checksum-reports-042360977644-us-east-1]
+  AuditBucketName:
+    Type: String
+    Default: scanalyze-gug274-checksum-audit-042360977644-us-east-1
+    AllowedValues: [scanalyze-gug274-checksum-audit-042360977644-us-east-1]
+  TrailName:
+    Type: String
+    Default: scanalyze-gug274-checksum-custody
+    AllowedValues: [scanalyze-gug274-checksum-custody]
+  TemplateDigest:
+    Type: String
+    AllowedPattern: '^[a-f0-9]{64}$'
+    Description: SHA-256 of these exact reviewed template bytes; supplied by a separately authorized installer, not computed or authenticated by CloudFormation.
+  ApprovedManifestWriterRoleArn:
+    Type: String
+    AllowedPattern: '^arn:aws:iam::042360977644:role/([A-Za-z0-9_+=,.@-]+/)*[A-Za-z0-9_+=,.@-]{1,64}$'
+    MaxLength: 600
+    Description: Exact separately reviewed existing manifest writer role in account 042360977644. No default, role creation or identity grant.
+  ApprovedBatchWriterRoleArn:
+    Type: String
+    AllowedPattern: '^arn:aws:iam::042360977644:role/([A-Za-z0-9_+=,.@-]+/)*[A-Za-z0-9_+=,.@-]{1,64}$'
+    MaxLength: 600
+    Description: Exact separately reviewed S3 Batch role ARN in account 042360977644; may be the proposed BatchBound role ARN before its separate creation. This Deny-only binding creates no role or Allow grant; confirm the role before any report write.
+Rules:
+  ExactInstallationScope:
+    Assertions:
+      - Assert: !Equals [!Ref AWS::AccountId, '042360977644']
+        AssertDescription: Install only in the platform authority account.
+      - Assert: !Equals [!Ref AWS::Region, us-east-1]
+        AssertDescription: Install only in us-east-1.
+  SeparateManifestAndReportWriters:
+    Assertions:
+      - Assert: !Not [!Equals [!Ref ApprovedManifestWriterRoleArn, !Ref ApprovedBatchWriterRoleArn]]
+        AssertDescription: Separate the manifest writer and Batch report writer roles; their trust policies still require independent review.
+Resources:
+  ReportBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref ReportBucketName
+      VersioningConfiguration: {Status: Enabled}
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      Tags:
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-274}
+        - {Key: purpose, Value: checksum-reports}
+        - {Key: template_sha256, Value: !Ref TemplateDigest}
+  AuditBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref AuditBucketName
+      VersioningConfiguration: {Status: Enabled}
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      Tags:
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-274}
+        - {Key: purpose, Value: checksum-audit}
+        - {Key: template_sha256, Value: !Ref TemplateDigest}
+  ReportBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref ReportBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource: [!GetAtt ReportBucket.Arn, !Sub '${ReportBucket.Arn}/*']
+            # Network context can be redacted in direct AWS service calls.
+            # Separate writer/service/source denies still constrain writes.
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+                aws:PrincipalIsAWSService: 'false'
+          - Sid: DenyWritesOutsideChecksumPrefixes
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            NotResource:
+              - !Sub '${ReportBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/manifests/*'
+              - !Sub '${ReportBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/reports/*'
+          - Sid: DenyManifestWritesByOtherPrincipals
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${ReportBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/manifests/*'
+            Condition:
+              ArnNotEquals: {aws:PrincipalArn: !Ref ApprovedManifestWriterRoleArn}
+          - Sid: DenyReportWritesByOtherPrincipals
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${ReportBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/reports/*'
+            Condition:
+              ArnNotEquals: {aws:PrincipalArn: !Ref ApprovedBatchWriterRoleArn}
+          - Sid: DenyDeletingChecksumEvidence
+            Effect: Deny
+            Principal: '*'
+            Action: [s3:DeleteObject, s3:DeleteObjectVersion]
+            Resource: !Sub '${ReportBucket.Arn}/*'
+          - Sid: DenyExplicitWrongEncryption
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${ReportBucket.Arn}/*'
+            Condition:
+              'Null': {s3:x-amz-server-side-encryption: 'false'}
+              StringNotEquals: {s3:x-amz-server-side-encryption: AES256}
+          - Sid: DenyCustomerProvidedEncryptionKeys
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${ReportBucket.Arn}/*'
+            Condition:
+              'Null': {s3:x-amz-server-side-encryption-customer-algorithm: 'false'}
+  AuditBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Bucket: !Ref AuditBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource: [!GetAtt AuditBucket.Arn, !Sub '${AuditBucket.Arn}/*']
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+                aws:PrincipalIsAWSService: 'false'
+          - Sid: DenyWritesOutsideExactTrailPaths
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            NotResource:
+              - !Sub '${AuditBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/audit/AWSLogs/042360977644/CloudTrail/us-east-1/*'
+              - !Sub '${AuditBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/audit/AWSLogs/042360977644/CloudTrail-Digest/us-east-1/*'
+          # Separate Deny statements implement OR: either wrong service OR wrong
+          # trail is rejected, including missing service/source request context.
+          - Sid: DenyAuditWritesByOtherServicesOrPrincipals
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${AuditBucket.Arn}/*'
+            Condition:
+              StringNotEqualsIfExists: {aws:PrincipalServiceName: cloudtrail.amazonaws.com}
+          - Sid: DenyAuditWritesFromOtherTrails
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${AuditBucket.Arn}/*'
+            Condition:
+              ArnNotEqualsIfExists:
+                aws:SourceArn: !Sub 'arn:aws:cloudtrail:us-east-1:042360977644:trail/${TrailName}'
+          - Sid: DenyDeletingAuditEvidence
+            Effect: Deny
+            Principal: '*'
+            Action: [s3:DeleteObject, s3:DeleteObjectVersion]
+            Resource: !Sub '${AuditBucket.Arn}/*'
+          - Sid: DenyExplicitWrongEncryption
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${AuditBucket.Arn}/*'
+            Condition:
+              'Null': {s3:x-amz-server-side-encryption: 'false'}
+              StringNotEquals: {s3:x-amz-server-side-encryption: AES256}
+          - Sid: DenyCustomerProvidedEncryptionKeys
+            Effect: Deny
+            Principal: '*'
+            Action: s3:PutObject
+            Resource: !Sub '${AuditBucket.Arn}/*'
+            Condition:
+              'Null': {s3:x-amz-server-side-encryption-customer-algorithm: 'false'}
+          - Sid: ExactTrailAclCheck
+            Effect: Allow
+            Principal: {Service: cloudtrail.amazonaws.com}
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt AuditBucket.Arn
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub 'arn:aws:cloudtrail:us-east-1:042360977644:trail/${TrailName}'
+          - Sid: ExactTrailLogAndDigestDelivery
+            Effect: Allow
+            Principal: {Service: cloudtrail.amazonaws.com}
+            Action: s3:PutObject
+            Resource:
+              - !Sub '${AuditBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/audit/AWSLogs/042360977644/CloudTrail/us-east-1/*'
+              - !Sub '${AuditBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/audit/AWSLogs/042360977644/CloudTrail-Digest/us-east-1/*'
+            Condition:
+              StringEquals:
+                aws:SourceArn: !Sub 'arn:aws:cloudtrail:us-east-1:042360977644:trail/${TrailName}'
+                s3:x-amz-acl: bucket-owner-full-control
+  CustodyTrail:
+    Type: AWS::CloudTrail::Trail
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    DependsOn: AuditBucketPolicy
+    Properties:
+      TrailName: !Ref TrailName
+      S3BucketName: !Ref AuditBucket
+      S3KeyPrefix: scanalyze/platform-authority/gug-274/checksum/audit
+      # Preparation only. Activation needs a separate reviewed change and action.
+      IsLogging: false
+      IsMultiRegionTrail: false
+      IsOrganizationTrail: false
+      IncludeGlobalServiceEvents: false
+      EnableLogFileValidation: true
+      AdvancedEventSelectors:
+        - Name: AllWritesToExactChecksumReportPrefix
+          FieldSelectors:
+            - Field: eventCategory
+              Equals: [Data]
+            - Field: resources.type
+              Equals: [AWS::S3::Object]
+            - Field: readOnly
+              Equals: ['false']
+            - Field: resources.ARN
+              StartsWith: [!Sub '${ReportBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/reports/']
+      Tags:
+        - {Key: service, Value: scanalyze-platform-authority}
+        - {Key: work_package, Value: GUG-274}
+        - {Key: purpose, Value: checksum-custody}
+        - {Key: template_sha256, Value: !Ref TemplateDigest}
+Outputs:
+  ReportBucketName:
+    Value: !Ref ReportBucket
+  AuditBucketName:
+    Value: !Ref AuditBucket
+  CustodyTrailArn:
+    Value: !GetAtt CustodyTrail.Arn
+  ReviewedTemplateDigest:
+    Value: !Ref TemplateDigest

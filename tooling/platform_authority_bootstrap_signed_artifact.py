@@ -85,6 +85,15 @@ AWS_LAMBDA_SIGNER_ARCHIVE_SUFFIX = (
     "META_INF/aws_signer_signature_v1.0.SF",
 )
 MAX_SIGNER_SIGNATURE_ENTRY_BYTES = 64 * 1024
+NATIVE_SHA256_SOURCE = "native-sha256"
+BATCH_SHA256_SOURCE = "s3-batch-sha256"
+CHECKSUM_EVIDENCE_CONTRACT_PATH = Path(
+    "bootstrap/platform-authority-bootstrap-checksum-evidence-contract.json"
+)
+CHECKSUM_EVIDENCE_CONTRACT_TYPE = (
+    "scanalyze.platform_authority.bootstrap_checksum_evidence_contract.v1"
+)
+MAX_CHECKSUM_CONTRACT_BYTES = 4096
 
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -120,6 +129,103 @@ _SIGNED_KEY_RE = re.compile(
 
 class BootstrapSignedArtifactError(ValueError):
     """Stable fail-closed signed-artifact contract violation."""
+
+
+def validate_checksum_evidence_contract(contract: Mapping[str, Any]) -> None:
+    """Validate the disabled, source-owned Batch compatibility proposal.
+
+    This is not a receipt, a custody attestation, or a configurable enablement
+    switch. The real report-producer verifier and reviewed report dialect do
+    not exist yet. Changing a JSON flag cannot authorize provider evidence.
+    """
+
+    expected = {
+        "artifact_type": CHECKSUM_EVIDENCE_CONTRACT_TYPE,
+        "schema_version": 1,
+        "work_package": WORK_PACKAGE,
+        "authority_account_id": AUTHORITY_ACCOUNT_ID,
+        "region": REGION,
+        "configuration_status": "NOT_CONFIGURED",
+        "activation_authorized": False,
+        "signed_checksum_source": BATCH_SHA256_SOURCE,
+        "checksum_algorithm": "SHA256",
+        "checksum_type": "FULL_OBJECT",
+        "intended_receipt_schema_version": 2,
+        "report_schema": None,
+        "report_producer_verifier": None,
+        "blocking_requirements": [
+            "REPORT_PRODUCER_PROVENANCE_UNPROVEN",
+            "REPORT_DIALECT_NOT_REVIEWED",
+        ],
+        "production_status": PRODUCTION_STATUS,
+    }
+    if (
+        not isinstance(contract, Mapping)
+        or set(contract) != set(expected)
+        or any(type(contract[name]) is not type(value) for name, value in expected.items())
+        or dict(contract) != expected
+    ):
+        raise BootstrapSignedArtifactError("CHECKSUM_EVIDENCE_CONTRACT_INVALID")
+
+
+def load_checksum_evidence_contract(*, source_root: Path) -> Mapping[str, Any]:
+    """Read only the fixed public source contract, without following links."""
+
+    try:
+        root = source_root.resolve(strict=True)
+        requested = root / CHECKSUM_EVIDENCE_CONTRACT_PATH
+        if any(
+            (root / Path(*CHECKSUM_EVIDENCE_CONTRACT_PATH.parts[:index])).is_symlink()
+            for index in range(1, len(CHECKSUM_EVIDENCE_CONTRACT_PATH.parts) + 1)
+        ) or not requested.is_file():
+            raise BootstrapSignedArtifactError("CHECKSUM_EVIDENCE_CONTRACT_UNAVAILABLE")
+        with requested.open("rb") as stream:
+            raw = stream.read(MAX_CHECKSUM_CONTRACT_BYTES + 1)
+        if not 0 < len(raw) <= MAX_CHECKSUM_CONTRACT_BYTES:
+            raise BootstrapSignedArtifactError("CHECKSUM_EVIDENCE_CONTRACT_INVALID")
+
+        def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+            result: dict[str, Any] = {}
+            for key, value in items:
+                if key in result:
+                    raise BootstrapSignedArtifactError("CHECKSUM_EVIDENCE_CONTRACT_INVALID")
+                result[key] = value
+            return result
+
+        def reject_constant(_value: str) -> None:
+            raise BootstrapSignedArtifactError("CHECKSUM_EVIDENCE_CONTRACT_INVALID")
+
+        loaded = json.loads(
+            raw.decode("utf-8"), object_pairs_hook=pairs,
+            parse_constant=reject_constant,
+        )
+    except BootstrapSignedArtifactError:
+        raise
+    except (OSError, UnicodeError, ValueError, RecursionError):
+        raise BootstrapSignedArtifactError("CHECKSUM_EVIDENCE_CONTRACT_UNAVAILABLE") from None
+    validate_checksum_evidence_contract(loaded)
+    return dict(loaded)
+
+
+def require_signed_checksum_source(*, source_root: Path, checksum_source: str) -> None:
+    """Stop unsupported evidence before source, SDK, or provider collection.
+
+    The native v1 route remains unchanged. Batch syntax/content validation is
+    preparatory only; neither a consistent CSV nor current IAM policies prove
+    historical report-write provenance. No Batch-derived receipt is emitted.
+    """
+
+    if type(checksum_source) is not str:
+        raise BootstrapSignedArtifactError("SIGNED_CHECKSUM_SOURCE_INVALID")
+    if checksum_source == NATIVE_SHA256_SOURCE:
+        return
+    if checksum_source != BATCH_SHA256_SOURCE:
+        raise BootstrapSignedArtifactError("SIGNED_CHECKSUM_SOURCE_INVALID")
+    load_checksum_evidence_contract(source_root=source_root)
+    raise BootstrapSignedArtifactError(
+        "HUMAN_DECISION_REQUIRED:REPORT_PRODUCER_PROVENANCE_UNPROVEN:"
+        "REPORT_DIALECT_NOT_REVIEWED"
+    )
 
 
 def verify_reviewed_source_release(
@@ -1027,8 +1133,11 @@ def build_signed_artifact_receipt_from_aws(
     signer_client: Any,
     s3_client: Any,
     now: datetime | None = None,
+    checksum_source: str = NATIVE_SHA256_SOURCE,
 ) -> Mapping[str, Any]:
     """Rebuild reviewed source and collect every provider fact read-only."""
+
+    require_signed_checksum_source(source_root=source_root, checksum_source=checksum_source)
 
     if (
         expected_boto3_version != EXPECTED_BOTO3_VERSION
