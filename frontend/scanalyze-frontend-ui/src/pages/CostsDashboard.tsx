@@ -54,21 +54,21 @@ const CostsDashboard: React.FC = () => {
 
             <div className="max-w-7xl mx-auto px-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                        <div className="relative overflow-hidden p-6 rounded-3xl border border-white/5 bg-[#191b24] shadow-sm transform hover:-translate-y-1 transition-transform">
+                        <div className="relative overflow-hidden p-6 rounded-3xl border border-white/5 bg-[#191b24] shadow-xs transform hover:-translate-y-1 transition-transform">
                             <div className="relative z-10 flex items-center justify-between mb-2">
                                 <span className="text-sm font-medium text-slate-400">Costo Total Estimado</span>
                                 <span className="material-symbols-outlined text-[#2b5bee] text-lg">payments</span>
                             </div>
                             <div className="relative z-10 text-3xl font-extrabold text-white tracking-tight">${data.summary.total_cost.toFixed(2)}</div>
                         </div>
-                        <div className="relative overflow-hidden p-6 rounded-3xl border border-white/5 bg-[#191b24] shadow-sm transform hover:-translate-y-1 transition-transform">
+                        <div className="relative overflow-hidden p-6 rounded-3xl border border-white/5 bg-[#191b24] shadow-xs transform hover:-translate-y-1 transition-transform">
                             <div className="relative z-10 flex items-center justify-between mb-2">
                                 <span className="text-sm font-medium text-slate-400">Documentos Procesados</span>
                                 <span className="material-symbols-outlined text-white/50 text-lg">description</span>
                             </div>
                             <div className="relative z-10 text-3xl font-bold text-white tracking-tight">{data.summary.total_documents}</div>
                         </div>
-                        <div className="relative overflow-hidden p-6 rounded-3xl border border-white/5 bg-[#191b24] shadow-sm transform hover:-translate-y-1 transition-transform">
+                        <div className="relative overflow-hidden p-6 rounded-3xl border border-white/5 bg-[#191b24] shadow-xs transform hover:-translate-y-1 transition-transform">
                             <div className="relative z-10 flex items-center justify-between mb-2">
                                 <span className="text-sm font-medium text-slate-400">Promedio Costo/Doc</span>
                                 <span className="material-symbols-outlined text-emerald-400 text-lg">trending_flat</span>
@@ -169,7 +169,7 @@ const CostsDashboard: React.FC = () => {
                         </section>
                     </div>
 
-                    <div className="mt-8 p-1 rounded-2xl border border-white/5 flex flex-col md:flex-row items-center gap-4 bg-gradient-to-r from-emerald-500/10 to-transparent">
+                    <div className="mt-8 p-1 rounded-2xl border border-white/5 flex flex-col md:flex-row items-center gap-4 bg-linear-to-r/srgb from-emerald-500/10 to-transparent">
                         <div className="p-4 bg-emerald-500 rounded-xl m-2 opacity-90">
                             <span className="material-symbols-outlined text-white" style={{fontVariationSettings: "'FILL' 1"}}>lightbulb</span>
                         </div>

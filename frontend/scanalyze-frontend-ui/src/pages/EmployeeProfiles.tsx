@@ -129,7 +129,7 @@ export const EmployeeProfiles: React.FC = () => {
             value={batchInput}
             onChange={(e) => setBatchInput(e.target.value)}
             placeholder="ID del lote..."
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500/50 text-sm"
+            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-hidden focus:border-amber-500/50 text-sm"
           />
         </div>
         <div className="w-40">
@@ -137,7 +137,7 @@ export const EmployeeProfiles: React.FC = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500/50 text-sm"
+            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-hidden focus:border-amber-500/50 text-sm"
           >
             <option value="">Todos</option>
             <option value="COMPLETE">Completo</option>
@@ -152,7 +152,7 @@ export const EmployeeProfiles: React.FC = () => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar por nombre del trabajador..."
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500/50 text-sm"
+            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-hidden focus:border-amber-500/50 text-sm"
           />
         </div>
         <button

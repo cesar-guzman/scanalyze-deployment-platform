@@ -262,7 +262,7 @@ const BankStatementsForActor: React.FC<{ subject?: string }> = ({ subject }) => 
                  onDragLeave={e => { e.preventDefault(); setIsDragging(false); }}
                  onDrop={e => { e.preventDefault(); setIsDragging(false); if (e.dataTransfer.files?.length) addFiles(e.dataTransfer.files); }}
                  className={`border-2 border-dashed p-10 text-center rounded-2xl transition-all min-h-[200px] flex flex-col items-center justify-center ${isDragging ? 'border-cyan-500 bg-cyan-500/5' : 'border-slate-700 bg-slate-900/50'}`}>
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center mb-4 border border-cyan-500/20">
+              <div className="w-14 h-14 rounded-2xl bg-linear-to-br/srgb from-cyan-500/20 to-blue-500/20 flex items-center justify-center mb-4 border border-cyan-500/20">
                 <svg className="w-7 h-7 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" /></svg>
               </div>
               <h3 className="m-0 mb-1 text-lg font-semibold text-slate-50">Arrastra estados de cuenta</h3>
@@ -291,7 +291,7 @@ const BankStatementsForActor: React.FC<{ subject?: string }> = ({ subject }) => 
                 </div>
               </div>
               <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-                <div className="bg-gradient-to-r from-cyan-500 to-blue-500 h-full transition-all duration-300" style={{ width: `${getOverallProgress()}%` }} />
+                <div className="bg-linear-to-r/srgb from-cyan-500 to-blue-500 h-full transition-all duration-300" style={{ width: `${getOverallProgress()}%` }} />
               </div>
               {batchErrorMsg && <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-md text-sm text-rose-400">{batchErrorMsg}</div>}
               {batch && (
@@ -539,13 +539,13 @@ const BankStatementsForActor: React.FC<{ subject?: string }> = ({ subject }) => 
                 </div>
                 {categories.length > 0 && (
                   <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
-                    className="bg-slate-800/80 border border-slate-700/50 text-slate-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-cyan-500/50">
+                    className="bg-slate-800/80 border border-slate-700/50 text-slate-300 text-xs rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-cyan-500/50">
                     <option value="all">Todas las categorías</option>
                     {categories.map(c => <option key={c} value={c!}>{c}</option>)}
                   </select>
                 )}
                 <input type="text" placeholder="Buscar descripción…" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
-                  className="bg-slate-800/80 border border-slate-700/50 text-slate-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-cyan-500/50 flex-1 min-w-[150px]" />
+                  className="bg-slate-800/80 border border-slate-700/50 text-slate-300 text-xs rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-cyan-500/50 flex-1 min-w-[150px]" />
                 <span className="text-xs text-slate-500">{filteredTxns.length} de {(resultData?.transactions ?? []).length} transacciones</span>
               </div>
 

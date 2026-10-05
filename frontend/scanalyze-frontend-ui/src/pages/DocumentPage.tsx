@@ -78,7 +78,7 @@ export default function DocumentPage() {
           {STAGES.map((stage, idx) => {
             const st = getStageStatus(stage.id);
             return (
-              <li key={stage.id} className="relative flex items-center space-x-4">
+              <li key={stage.id} className="relative flex items-center gap-x-4">
                 <div className={`relative z-10 flex items-center justify-center w-12 h-12 rounded-full border-2 
                   ${st === 'success' ? 'bg-green-500/20 border-green-500 text-green-400' : 
                     st === 'running' ? 'bg-blue-500/20 border-blue-500 text-blue-400' :
@@ -117,7 +117,7 @@ export default function DocumentPage() {
     if (!result) return null;
 
     return (
-      <div className="mt-8 bg-white/5 p-6 rounded-xl border border-white/10 shadow-inner">
+      <div className="mt-8 bg-white/5 p-6 rounded-xl border border-white/10 inset-shadow-sm">
         <div className="flex items-center justify-between mb-6 border-b border-white/10 pb-4">
           <h2 className="text-2xl font-bold text-teal-400">Resultados de Extracción</h2>
           {result.quality && (
@@ -205,13 +205,13 @@ export default function DocumentPage() {
         
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-teal-400 to-blue-500">
+            <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-linear-to-r/srgb from-teal-400 to-blue-500">
               Rastreo de Documento
             </h1>
             <p className="text-sm text-slate-400 font-mono mt-2">ID: {id}</p>
           </div>
           {isPolling && (
-            <div className="flex items-center space-x-2 text-blue-400 bg-blue-500/10 px-4 py-2 rounded-full border border-blue-500/20">
+            <div className="flex items-center gap-x-2 text-blue-400 bg-blue-500/10 px-4 py-2 rounded-full border border-blue-500/20">
               <ArrowPathIcon className="w-5 h-5 animate-spin" />
               <span className="text-sm font-semibold uppercase tracking-wider">Polling Activo</span>
             </div>
@@ -219,14 +219,14 @@ export default function DocumentPage() {
         </div>
 
         {pollingError && (
-          <div className="p-4 bg-red-500/10 border border-red-500 rounded-lg flex items-center space-x-3 text-red-400">
+          <div className="p-4 bg-red-500/10 border border-red-500 rounded-lg flex items-center gap-x-3 text-red-400">
             <ExclamationCircleIcon className="w-6 h-6 shrink-0" />
             <p>Se perdió la conexión para el rastreo del documento.</p>
           </div>
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-1 bg-white/5 backdrop-blur-sm p-6 rounded-2xl border border-white/10">
+          <div className="lg:col-span-1 bg-white/5 backdrop-blur-xs p-6 rounded-2xl border border-white/10">
             <h2 className="text-xl font-bold mb-6 text-slate-200">Progreso</h2>
             {renderTimeline()}
           </div>
@@ -249,7 +249,7 @@ export default function DocumentPage() {
                 </button>
               </div>
             ) : (
-              <div className="bg-white/5 backdrop-blur-sm p-12 rounded-2xl border border-white/10 flex flex-col items-center justify-center h-full min-h-[400px] text-center">
+              <div className="bg-white/5 backdrop-blur-xs p-12 rounded-2xl border border-white/10 flex flex-col items-center justify-center h-full min-h-[400px] text-center">
                 <DocumentTextIcon className="w-24 h-24 text-slate-600 mb-6 animate-pulse" />
                 <h2 className="text-2xl font-bold text-slate-300 mb-2">Analizando Documento</h2>
                 <p className="text-slate-400 max-w-sm">

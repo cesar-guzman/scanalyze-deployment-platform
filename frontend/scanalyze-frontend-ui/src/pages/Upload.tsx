@@ -198,11 +198,11 @@ export default function UploadPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-linear-to-br/srgb from-slate-900 via-purple-900 to-slate-900 text-white flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-2xl bg-white/10 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/20 p-8">
         
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-teal-400 to-blue-500">
+          <h1 className="text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-linear-to-r/srgb from-teal-400 to-blue-500">
             Scanalyze Upload
           </h1>
           <p className="mt-2 text-slate-300 text-sm">
@@ -225,7 +225,7 @@ export default function UploadPage() {
           }`}
         >
           {file ? (
-            <div className="flex flex-col items-center space-y-4">
+            <div className="flex flex-col items-center gap-4">
               <DocumentIcon className="w-16 h-16 text-teal-400" />
               <div className="text-center">
                 <p className="font-medium text-lg">{file.name}</p>
@@ -240,11 +240,11 @@ export default function UploadPage() {
               </button>
             </div>
           ) : (
-            <div className="flex flex-col items-center space-y-4 text-slate-300 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+            <div className="flex flex-col items-center gap-4 text-slate-300 cursor-pointer" onClick={() => fileInputRef.current?.click()}>
               <ArrowUpTrayIcon className="w-16 h-16 opacity-75" />
               <p className="font-medium text-lg">Arrastra tu archivo aquí</p>
               <p className="text-sm opacity-75">PDF, PNG, JPEG o TIFF hasta 512 MiB</p>
-              <button className="mt-4 px-6 py-2 rounded-full bg-white/10 hover:bg-white/20 font-semibold transition-colors">
+              <button className="px-6 py-2 rounded-full bg-white/10 hover:bg-white/20 font-semibold transition-colors">
                 Explorar archivos
               </button>
             </div>
@@ -263,7 +263,7 @@ export default function UploadPage() {
         </div>
 
         {stage === 'ERROR' && (
-          <div role="alert" className="mt-6 p-4 rounded-lg bg-red-500/20 border border-red-500/50 flex items-start space-x-3">
+          <div role="alert" className="mt-6 p-4 rounded-lg bg-red-500/20 border border-red-500/50 flex items-start gap-x-3">
             <XCircleIcon className="w-6 h-6 text-red-400 shrink-0" />
             <div>
               <h3 className="font-semibold text-red-400">Error de carga</h3>
@@ -284,7 +284,7 @@ export default function UploadPage() {
             </div>
             <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-teal-400 to-blue-500 transition-all duration-300 ease-out"
+                className="h-full bg-linear-to-r/srgb from-teal-400 to-blue-500 transition-all duration-300 ease-out"
                 style={{ width: `${progress}%` }}
               />
             </div>
@@ -292,7 +292,7 @@ export default function UploadPage() {
         )}
 
         {stage === 'SUCCESS' && (
-          <div className="mt-6 p-4 rounded-lg bg-green-500/20 border border-green-500/50 flex items-center justify-center space-x-3 text-green-400">
+          <div className="mt-6 p-4 rounded-lg bg-green-500/20 border border-green-500/50 flex items-center justify-center gap-x-3 text-green-400">
             <CheckCircleIcon className="w-6 h-6" />
             <span className="font-semibold">¡Carga exitosa! Redirigiendo...</span>
           </div>
@@ -302,7 +302,7 @@ export default function UploadPage() {
           <button
             onClick={handleUpload}
             disabled={!storageKey || (!file && !intent) || intent?.phase === 'STOPPED' || retryDelayed || ['WAITING_SERVER', 'UPLOADING', 'PROCESSING_ACTIVE', 'SUCCESS'].includes(stage)}
-            className="px-8 py-3 rounded-full bg-gradient-to-r from-teal-500 to-blue-600 hover:from-teal-400 hover:to-blue-500 font-bold text-white shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            className="px-8 py-3 rounded-full bg-linear-to-r/srgb from-teal-500 to-blue-600 hover:from-teal-400 hover:to-blue-500 font-bold text-white shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             {intent ? 'Recuperar carga' : 'Subir Documento'}
           </button>
