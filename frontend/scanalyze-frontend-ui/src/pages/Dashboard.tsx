@@ -349,7 +349,7 @@ export const Dashboard: React.FC = () => {
 
         {/* INE Modal */}
         {showIneModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs animate-fade-in">
             <div className="bg-slate-900 border border-slate-700 p-8 rounded-2xl shadow-2xl w-full max-w-lg">
               <h3 className="text-2xl font-bold text-white mb-2">Exportación INE / KYC</h3>
               <p className="text-slate-400 text-sm mb-6">Selecciona el modo de exportación: filtros, selección manual o por lote.</p>
@@ -385,15 +385,15 @@ export const Dashboard: React.FC = () => {
                 <div className="flex flex-col gap-4 mb-6">
                   <div>
                     <label className="block text-slate-300 text-sm font-semibold mb-2">Fecha de Inicio</label>
-                    <input type="date" value={ineFilters.startDate} onChange={e => setIneFilters({...ineFilters, startDate: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:border-pink-500/50" />
+                    <input type="date" value={ineFilters.startDate} onChange={e => setIneFilters({...ineFilters, startDate: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-slate-100 focus:outline-hidden focus:border-pink-500/50" />
                   </div>
                   <div>
                     <label className="block text-slate-300 text-sm font-semibold mb-2">Fecha de Fin</label>
-                    <input type="date" value={ineFilters.endDate} onChange={e => setIneFilters({...ineFilters, endDate: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:border-pink-500/50" />
+                    <input type="date" value={ineFilters.endDate} onChange={e => setIneFilters({...ineFilters, endDate: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-slate-100 focus:outline-hidden focus:border-pink-500/50" />
                   </div>
                   <div>
                     <label className="block text-slate-300 text-sm font-semibold mb-2">Revisor (Opcional)</label>
-                    <input type="text" placeholder="ID de Usuario / Email" value={ineFilters.userId} onChange={e => setIneFilters({...ineFilters, userId: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-slate-100 focus:outline-none focus:border-pink-500/50" />
+                    <input type="text" placeholder="ID de Usuario / Email" value={ineFilters.userId} onChange={e => setIneFilters({...ineFilters, userId: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2 text-slate-100 focus:outline-hidden focus:border-pink-500/50" />
                   </div>
                 </div>
               )}
@@ -486,7 +486,7 @@ export const Dashboard: React.FC = () => {
                                   : 'bg-slate-950/50 border-slate-800/50 hover:border-slate-600'
                               }`}
                             >
-                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
                                 isSelected ? 'border-pink-400 bg-pink-500/20' : 'border-slate-600'
                               }`}>
                                 {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-pink-400"></div>}
@@ -535,7 +535,7 @@ export const Dashboard: React.FC = () => {
               <div className="flex justify-end gap-4 mt-8">
                 {downloadError && (
                   <div role="alert" className="mr-auto p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2 max-w-sm">
-                    <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                     {downloadError}
                   </div>
                 )}

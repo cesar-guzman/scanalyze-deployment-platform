@@ -77,7 +77,7 @@ export const BulkUpload: React.FC = () => {
           className={`border-2 border-dashed p-10 text-center rounded-2xl transition-all duration-200 min-h-[200px] flex flex-col items-center justify-center
             ${isDragging ? 'border-indigo-500 bg-indigo-500/5' : 'border-slate-700 bg-slate-900/50'}`}
         >
-          <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center mb-4 border border-slate-700 shadow-sm">
+          <div className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center mb-4 border border-slate-700 shadow-xs">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
           </div>
           <h3 className="m-0 mb-1 text-lg font-semibold text-slate-50">Arrastra múltiples documentos</h3>
@@ -107,7 +107,7 @@ export const BulkUpload: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden shadow-inner">
+          <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden inset-shadow-sm">
              <div className="bg-indigo-500 h-full transition-all duration-300" style={{ width: `${getOverallProgress()}%`, boxShadow: '0 0 10px #6366f1' }} />
           </div>
 
