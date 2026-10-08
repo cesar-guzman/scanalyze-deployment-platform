@@ -269,11 +269,50 @@ def test_service_delivery_allows_exact_log_and_digest_paths_with_owner_acl(templ
 
 
 @pytest.mark.parametrize("resource", [
-    _audit_object(region="us-west-2"), _audit_object(account="999900001111"),
-    _audit_object(kind="CloudTrail-Other"), f"arn:aws:s3:::{AUDIT_BUCKET}/unrelated/object",
+    _audit_object(account="999900001111"),
+    f"arn:aws:s3:::{AUDIT_BUCKET}/unrelated/object",
+    f"arn:aws:s3:::{AUDIT_BUCKET}/{PREFIX}audit/AWSLogs/{ACCOUNT}-other/synthetic",
+    f"arn:aws:s3:::{AUDIT_BUCKET}/{PREFIX}audit-other/AWSLogs/{ACCOUNT}/synthetic",
+    f"arn:aws:s3:::{AUDIT_BUCKET}/{PREFIX}audit/AWSLogs/{ACCOUNT}",
 ])
-def test_cloudtrail_cannot_write_outside_both_exact_audit_paths(template: dict, resource: str) -> None:
+def test_cloudtrail_cannot_write_outside_exact_account_delivery_prefix(template: dict, resource: str) -> None:
     assert _denied(_policy(template, "AuditBucket"), "s3:PutObject", resource, _audit_context())
+
+
+def test_cloudtrail_delivery_policy_matches_documented_exact_account_contract(template: dict) -> None:
+    # AWS documents prefix/AWSLogs/account/* for the CloudTrail delivery contract.
+    # This is an offline policy check, not proof of CreateTrail acceptance.
+    statements = _policy(template, "AuditBucket")
+    delivery_prefix = f"arn:aws:s3:::{AUDIT_BUCKET}/{PREFIX}audit/AWSLogs/{ACCOUNT}/"
+    outside = next(s for s in statements if s["Sid"] == "DenyWritesOutsideExactTrailAccountPrefix")
+    delivery = next(s for s in statements if s["Sid"] == "ExactTrailLogAndDigestDelivery")
+    assert outside["NotResource"] == [delivery_prefix + "*"]
+    assert delivery["Resource"] == [delivery_prefix + "*"]
+    assert delivery["Principal"] == {"Service": "cloudtrail.amazonaws.com"}
+    assert delivery["Condition"] == {"StringEquals": {
+        "aws:SourceArn": TRAIL_ARN, "s3:x-amz-acl": "bucket-owner-full-control",
+    }}
+
+
+@pytest.mark.parametrize("key", [
+    "CloudTrail/us-east-1/2030/synthetic.json.gz",
+    "CloudTrail-Digest/us-east-1/2030/synthetic.json.gz",
+    "CloudTrail/us-west-2/2030/synthetic.json.gz",
+    "synthetic-service-validation",
+])
+def test_documented_delivery_namespace_still_needs_exact_trail_and_service(template: dict, key: str) -> None:
+    # Account-root delivery permissions and collection Region are distinct controls.
+    # The separate trail test still requires us-east-1 and IsMultiRegionTrail=False.
+    statements = _policy(template, "AuditBucket")
+    resource = f"arn:aws:s3:::{AUDIT_BUCKET}/{PREFIX}audit/AWSLogs/{ACCOUNT}/{key}"
+    context = _audit_context()
+    assert not _denied(statements, "s3:PutObject", resource, context)
+    assert any(s["Effect"] == "Allow" and _matches(s, "s3:PutObject", resource, context)
+               for s in statements)
+    assert _denied(statements, "s3:PutObject", resource,
+                   {**context, "aws:SourceArn": TRAIL_ARN + "-other"})
+    assert _denied(statements, "s3:PutObject", resource,
+                   {**context, "aws:PrincipalServiceName": "other.amazonaws.com"})
 
 
 @pytest.mark.parametrize("bucket", ["ReportBucket", "AuditBucket"])
@@ -323,7 +362,7 @@ def test_direct_cloudtrail_transport_exemption_keeps_service_source_and_prefix_r
     assert any(s["Effect"] == "Allow" and _matches(s, "s3:PutObject", resource, context) for s in policy)
     assert _denied(policy, "s3:PutObject", resource, {**context, "aws:SourceArn": TRAIL_ARN + "-other"})
     assert _denied(policy, "s3:PutObject", resource, {**context, "aws:PrincipalServiceName": "other.amazonaws.com"})
-    assert _denied(policy, "s3:PutObject", _audit_object(region="us-west-2"), context)
+    assert _denied(policy, "s3:PutObject", _audit_object(account="999900001111"), context)
 
 
 @pytest.mark.parametrize("bucket", ["ReportBucket", "AuditBucket"])

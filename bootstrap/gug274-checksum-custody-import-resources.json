@@ -1,0 +1,30 @@
+[
+  {
+    "ResourceType": "AWS::S3::Bucket",
+    "LogicalResourceId": "ReportBucket",
+    "ResourceIdentifier": {
+      "BucketName": "scanalyze-gug274-checksum-reports-042360977644-us-east-1"
+    }
+  },
+  {
+    "ResourceType": "AWS::S3::Bucket",
+    "LogicalResourceId": "AuditBucket",
+    "ResourceIdentifier": {
+      "BucketName": "scanalyze-gug274-checksum-audit-042360977644-us-east-1"
+    }
+  },
+  {
+    "ResourceType": "AWS::S3::BucketPolicy",
+    "LogicalResourceId": "ReportBucketPolicy",
+    "ResourceIdentifier": {
+      "Bucket": "scanalyze-gug274-checksum-reports-042360977644-us-east-1"
+    }
+  },
+  {
+    "ResourceType": "AWS::S3::BucketPolicy",
+    "LogicalResourceId": "AuditBucketPolicy",
+    "ResourceIdentifier": {
+      "Bucket": "scanalyze-gug274-checksum-audit-042360977644-us-east-1"
+    }
+  }
+]
