@@ -1,0 +1,26 @@
+[
+  {
+    "ParameterKey": "ReportBucketName",
+    "ParameterValue": "scanalyze-gug274-checksum-reports-042360977644-us-east-1"
+  },
+  {
+    "ParameterKey": "AuditBucketName",
+    "ParameterValue": "scanalyze-gug274-checksum-audit-042360977644-us-east-1"
+  },
+  {
+    "ParameterKey": "TrailName",
+    "ParameterValue": "scanalyze-gug274-checksum-custody"
+  },
+  {
+    "ParameterKey": "TemplateDigest",
+    "ParameterValue": "f7850f540ceeaf49fbb43af4ab48c12cd52c8b285cc5f580430400a09bbbacff"
+  },
+  {
+    "ParameterKey": "ApprovedManifestWriterRoleArn",
+    "ParameterValue": "arn:aws:iam::042360977644:role/scanalyze/platform-authority/ScanalyzeGug274ChecksumManifestWriter"
+  },
+  {
+    "ParameterKey": "ApprovedBatchWriterRoleArn",
+    "ParameterValue": "arn:aws:iam::042360977644:role/scanalyze/platform-authority/ScanalyzeGug274ChecksumBatchWriter"
+  }
+]

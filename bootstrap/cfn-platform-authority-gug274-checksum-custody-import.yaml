@@ -1,13 +1,17 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Local design for dedicated GUG-274 checksum report storage and a stopped custody trail.
+Description: IMPORT-only adoption of the four retained GUG-274 checksum buckets and policies; no custody repair or trail creation.
 Metadata:
-  DesignScope: Proposed resources only; names and role existence are unverified. No deployment or logging activation is authorized by this template.
-  CustodyLimit: Administrators can change policies. These controls alone do not establish historical writer identity or authorize a receipt.
-  RolePrerequisite: Review the supplied roles, identity permissions, trust and PassRole separately before any deployment. This template grants none of those permissions.
+  RecoveryPhase: IMPORT_ONLY
+  SourceCommit: '6954e63a81657c6fb52aeedba12656836e67d897'
+  ObservedOriginalTemplateSha256: '59de32582c35fa1a283a8d3de7da7eff14fb286658b081abbc91be1e223db6f8'
+  ImportScope: Four retained resources at their original configuration. This template neither proves their current state nor authorizes import execution.
+  ImportEligibility: Unresolved. Verify live existence and that each resource is outside every other stack in us-east-1 before import; DELETE_SKIPPED alone is not proof.
+  Provenance: TemplateDigest preserves the original deployed template_sha256 tags. Calculate and review this import file's own SHA-256 separately; it must not replace the original binding.
+  StackTagGate: Import can apply stack-level tags. Review those writes separately and compare retained configuration before and after import.
+  CustodyLimit: The original audit policy rejected during trail creation is intentionally preserved. The exact internal rejection cause is unverified. Repair only through a separate reviewed UPDATE after IMPORT_COMPLETE.
   References:
-    - https://docs.aws.amazon.com/awscloudtrail/latest/userguide/create-s3-bucket-policy-for-cloudtrail.html
-    - https://docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-log-file-validation-digest-file-structure.html
-    - https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_condition-keys.html
+    - https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/import-resources-manually.html
+    - https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resource-import-supported-resources.html
 Parameters:
   ReportBucketName:
     Type: String
@@ -21,20 +25,27 @@ Parameters:
     Type: String
     Default: scanalyze-gug274-checksum-custody
     AllowedValues: [scanalyze-gug274-checksum-custody]
+    Description: Original fixed trail name used only in retained policy SourceArn conditions; this stage contains no trail resource.
   TemplateDigest:
     Type: String
+    Default: '59de32582c35fa1a283a8d3de7da7eff14fb286658b081abbc91be1e223db6f8'
+    AllowedValues: ['59de32582c35fa1a283a8d3de7da7eff14fb286658b081abbc91be1e223db6f8']
     AllowedPattern: '^[a-f0-9]{64}$'
-    Description: SHA-256 of these exact reviewed template bytes; supplied by a separately authorized installer, not computed or authenticated by CloudFormation.
+    Description: Original deployed custody template SHA-256 retained in existing tags, not the SHA-256 of this import template.
   ApprovedManifestWriterRoleArn:
     Type: String
+    Default: arn:aws:iam::042360977644:role/scanalyze/platform-authority/ScanalyzeGug274ChecksumManifestWriter
+    AllowedValues: [arn:aws:iam::042360977644:role/scanalyze/platform-authority/ScanalyzeGug274ChecksumManifestWriter]
     AllowedPattern: '^arn:aws:iam::042360977644:role/([A-Za-z0-9_+=,.@-]+/)*[A-Za-z0-9_+=,.@-]{1,64}$'
     MaxLength: 600
-    Description: Exact separately reviewed existing manifest writer role in account 042360977644. No default, role creation or identity grant.
+    Description: Original exact Deny-condition binding; import does not assume this role or create an identity grant.
   ApprovedBatchWriterRoleArn:
     Type: String
+    Default: arn:aws:iam::042360977644:role/scanalyze/platform-authority/ScanalyzeGug274ChecksumBatchWriter
+    AllowedValues: [arn:aws:iam::042360977644:role/scanalyze/platform-authority/ScanalyzeGug274ChecksumBatchWriter]
     AllowedPattern: '^arn:aws:iam::042360977644:role/([A-Za-z0-9_+=,.@-]+/)*[A-Za-z0-9_+=,.@-]{1,64}$'
     MaxLength: 600
-    Description: Exact separately reviewed S3 Batch role ARN in account 042360977644; may be the proposed BatchBound role ARN before its separate creation. This Deny-only binding creates no role or Allow grant; confirm the role before any report write.
+    Description: Original exact Deny-only binding to the proposed, previously absent Batch writer. Import creates no role or Allow grant and does not assume it.
 Rules:
   ExactInstallationScope:
     Assertions:
@@ -170,12 +181,13 @@ Resources:
               Bool:
                 aws:SecureTransport: 'false'
                 aws:PrincipalIsAWSService: 'false'
-          - Sid: DenyWritesOutsideExactTrailAccountPrefix
+          - Sid: DenyWritesOutsideExactTrailPaths
             Effect: Deny
             Principal: '*'
             Action: s3:PutObject
             NotResource:
-              - !Sub '${AuditBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/audit/AWSLogs/042360977644/*'
+              - !Sub '${AuditBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/audit/AWSLogs/042360977644/CloudTrail/us-east-1/*'
+              - !Sub '${AuditBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/audit/AWSLogs/042360977644/CloudTrail-Digest/us-east-1/*'
           # Separate Deny statements implement OR: either wrong service OR wrong
           # trail is rejected, including missing service/source request context.
           - Sid: DenyAuditWritesByOtherServicesOrPrincipals
@@ -226,48 +238,9 @@ Resources:
             Principal: {Service: cloudtrail.amazonaws.com}
             Action: s3:PutObject
             Resource:
-              - !Sub '${AuditBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/audit/AWSLogs/042360977644/*'
+              - !Sub '${AuditBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/audit/AWSLogs/042360977644/CloudTrail/us-east-1/*'
+              - !Sub '${AuditBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/audit/AWSLogs/042360977644/CloudTrail-Digest/us-east-1/*'
             Condition:
               StringEquals:
                 aws:SourceArn: !Sub 'arn:aws:cloudtrail:us-east-1:042360977644:trail/${TrailName}'
                 s3:x-amz-acl: bucket-owner-full-control
-  CustodyTrail:
-    Type: AWS::CloudTrail::Trail
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-    DependsOn: AuditBucketPolicy
-    Properties:
-      TrailName: !Ref TrailName
-      S3BucketName: !Ref AuditBucket
-      S3KeyPrefix: scanalyze/platform-authority/gug-274/checksum/audit
-      # Preparation only. Activation needs a separate reviewed change and action.
-      IsLogging: false
-      IsMultiRegionTrail: false
-      IsOrganizationTrail: false
-      IncludeGlobalServiceEvents: false
-      EnableLogFileValidation: true
-      AdvancedEventSelectors:
-        - Name: AllWritesToExactChecksumReportPrefix
-          FieldSelectors:
-            - Field: eventCategory
-              Equals: [Data]
-            - Field: resources.type
-              Equals: [AWS::S3::Object]
-            - Field: readOnly
-              Equals: ['false']
-            - Field: resources.ARN
-              StartsWith: [!Sub '${ReportBucket.Arn}/scanalyze/platform-authority/gug-274/checksum/reports/']
-      Tags:
-        - {Key: service, Value: scanalyze-platform-authority}
-        - {Key: work_package, Value: GUG-274}
-        - {Key: purpose, Value: checksum-custody}
-        - {Key: template_sha256, Value: !Ref TemplateDigest}
-Outputs:
-  ReportBucketName:
-    Value: !Ref ReportBucket
-  AuditBucketName:
-    Value: !Ref AuditBucket
-  CustodyTrailArn:
-    Value: !GetAtt CustodyTrail.Arn
-  ReviewedTemplateDigest:
-    Value: !Ref TemplateDigest

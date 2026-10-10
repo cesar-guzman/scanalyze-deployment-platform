@@ -1,11 +1,14 @@
 # GUG-274 dedicated checksum custody design
 
-Status: **LOCAL DESIGN / NOT PROVISIONED / CAPTURE DISABLED**.
+Status: **LOCAL REPAIR PREPARED / RETAINED BUCKETS / TRAIL ABSENT**.
 
 Owner-selected scope: account `042360977644`, Region `us-east-1`. This is
 artifact-authority preparation, not application production deployment. No
-resource availability, effective permission, service delivery or historical
-producer identity has been verified by this design.
+service delivery or historical producer identity is established by this design.
+The 2026-10-07 bounded readback after one failed CREATE observed two retained
+buckets and their policies, but no trail. It is a dated checkpoint, not a live
+availability guarantee. The [GUG-446 recovery runbook](gug446-checksum-custody-recovery.md)
+records the exact resources, consumed attempt and separate import/update gates.
 
 ## Problem and decision
 
@@ -29,8 +32,10 @@ Provisioning and capture activation require separate reviewed actions.
 
 ## Proposed resource boundary
 
-These names are proposals, not existing-resource claims. Global S3 name
-availability and stack-name ownership remain unverified.
+The report and audit names below identify the retained buckets observed on
+2026-10-07. The exact trail was absent, and import eligibility remains unresolved.
+The template describes the target configuration; its local metadata is not
+evidence that the target was deployed successfully.
 
 | Resource | Proposed name / boundary | Purpose |
 |---|---|---|
@@ -41,17 +46,22 @@ availability and stack-name ownership remain unverified.
 | Report prefix | `scanalyze/platform-authority/gug-274/checksum/reports/` | Separately approved Batch writer |
 | Audit prefix | `scanalyze/platform-authority/gug-274/checksum/audit/` | Only direct delivery by the dedicated CloudTrail service |
 
-The local template creates exactly two buckets, two bucket policies and one
-trail. Account/Region assertions and fixed allowed names prevent an accidental
-retarget. A required `TemplateDigest` records the reviewed file digest; a
+The full template contains exactly two buckets, two bucket policies and one
+stopped trail. It must not be submitted as another CREATE over the retained
+names. Recovery first imports the four current resources without changing them,
+then separately reviews an UPDATE for the policy correction and absent trail.
+Account/Region assertions and fixed allowed names prevent an accidental
+retarget. A required `TemplateDigest` records the reviewed full-template digest; a
 supplied digest alone does not establish provenance. Two required writer-role
 ARNs are policy comparison inputs, not grants or proof of effective access.
 The roles must be distinct. A separate
 [local dedicated-role proposal](gug274-checksum-role-proposal.md) provides
 names and permission boundaries. The owner selected the shared human entry
 ARN, including its assigned group, in the linked ManifestOnly review packet;
-deployed writer identities, effective access and session controls remain
-unverified. Distinct names do not prove independent trust.
+the existing ManifestWriter permission can now be used with the retained report
+bucket. No role assumption or object upload was performed in the readback, and
+effective session separation remains unverified. Distinct names do not prove
+independent trust.
 
 Both buckets use versioning, BucketOwnerEnforced ownership, all public-access
 blocks and default SSE-S3/AES256. Explicit non-AES256 writes and SSE-C are
@@ -61,8 +71,15 @@ motivate this separate destination. The existing KMS artifact bucket and key
 remain unchanged. [S3 Batch manifest/report constraints](https://docs.aws.amazon.com/AmazonS3/latest/userguide/batch-ops-create-job.html)
 
 CloudTrail can deliver logs and digests with SSE-S3. The audit policy permits
-its service principal to check the bucket ACL and write only the account/Region
-log and digest paths, bound to the new trail's exact SourceArn. Owner-full-control
+its service principal to check the bucket ACL and write only beneath
+`audit/AWSLogs/042360977644/*`, bound to the trail's exact `us-east-1` SourceArn.
+This owner-approved local correction replaces the original two regional log
+and digest paths. It deliberately permits other subpaths, including other Region
+folders, within that account delivery namespace; capture remains single-region.
+The original CREATE failed with an incorrect audit bucket policy diagnosis.
+Matching the documented delivery resource is a compatibility hypothesis until
+a separate authorized stopped-trail creation succeeds; no internal validation
+cause or AWS acceptance is claimed here. Owner-full-control
 delivery remains compatible with BucketOwnerEnforced. Direct IAM writers,
 wrong/absent service context and wrong/absent SourceArn are denied separately.
 The HTTPS deny applies to non-service identities; direct service calls are
@@ -141,10 +158,13 @@ authorized. This document is not that authorization.
    actual ARN and the proposed Batch role ARN in this custody template; these
    Deny-only bindings do not create or grant access to a future role.
    With an explicitly selected profile, pass STS for `042360977644/us-east-1`.
-   Prepare a Change Set limited to these new resources and policies. Stop on
-   name collision, imports, replacements or changes to existing resources.
-   Apply only the reviewed Change Set; read back both buckets/policies and the
-   disabled trail. The template contains no service role or IAM capabilities.
+   The original custody CREATE rolled back and its authorization is consumed.
+   Follow the [recovery sequence](gug446-checksum-custody-recovery.md) for the
+   four retained resources: separately reviewed IMPORT, then separately reviewed
+   UPDATE for the corrected policy and stopped trail. Do not retry the original
+   runner, create over retained names, replace/delete buckets or treat historical
+   stack records as proof of import eligibility. The template contains no service
+   role or IAM capabilities.
 3. Review a separate source change and Change Set to enable this dedicated
    trail. After explicit approval, verify effective selectors, logging and
    delivery before the first report write. Do not manually toggle logging and
@@ -229,15 +249,17 @@ provisioning and stored objects have their own effects.
 
 ## Validation and rollback
 
-Focused local template tests check scope, policy restrictions, versioning,
+Focused local template and recovery tests check scope, policy restrictions, versioning,
 retention, encryption, selector bounds and the disabled activation boundary.
 They are structural/contract tests, not AWS policy simulation or proof of
-service delivery. No AWS template validation, Change Set, deployed readback,
+service delivery. The dated failed CREATE/readback is documented as prior
+evidence; no repaired-template AWS validation, recovery Change Set execution,
 Batch job, digest verification, real CSV fixture or production test is part of
-this local iteration.
+this local repair iteration.
 
-Before provisioning, rollback means reverting only this isolated local source
-change through the reviewed repository process. After any future provisioning,
+For this repair, rollback means reverting only the isolated source change
+through the reviewed repository process. The existing retained resources and
+consumed execution marker must be preserved. After any future recovery execution,
 review a specific rollback request; preserve buckets, trail and evidence.
 Stack deletion will retain them, and an activated retained trail can continue
 logging and charging. Do not delete the stack as an automatic cost-control or
