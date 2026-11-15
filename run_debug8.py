@@ -1,0 +1,3 @@
+from tooling.platform_authority_lambda_invocation_authority import analyze_authority_inventory
+import inspect
+print(inspect.getsource(analyze_authority_inventory))
