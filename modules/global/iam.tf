@@ -108,7 +108,10 @@ resource "aws_iam_policy" "workload_permissions_boundary" {
           "sqs:SendMessage",
           "sqs:ReceiveMessage",
           "sqs:DeleteMessage",
+          "sqs:ChangeMessageVisibility",
           "sqs:GetQueueAttributes",
+          "sqs:GetQueueUrl",
+          "dynamodb:ConditionCheckItem",
           "dynamodb:GetItem",
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",
@@ -121,12 +124,41 @@ resource "aws_iam_policy" "workload_permissions_boundary" {
           "ssm:GetParameter",
           "ssm:GetParameters",
           "ssm:GetParametersByPath",
-          "textract:*",
+          "textract:GetDocumentTextDetection",
+          "textract:StartDocumentTextDetection",
           "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
           "ecr:BatchGetImage",
           "ecr:GetDownloadUrlForLayer",
         ]
         Resource = "*"
+      },
+      {
+        # GUG-541: only the approved Bedrock models, never bedrock:*.
+        Sid      = "AllowApprovedBedrockModels"
+        Effect   = "Allow"
+        Action   = ["bedrock:InvokeModel"]
+        Resource = sort(distinct(concat(local.workload_bedrock_model_arns["classifier"], local.workload_bedrock_model_arns["extractor"])))
+      },
+      {
+        # GUG-541: user lifecycle calls from the ingest API, limited to this
+        # deployment's tagged user pool.
+        Sid    = "AllowDeploymentUserAdministration"
+        Effect = "Allow"
+        Action = [
+          "cognito-idp:AdminCreateUser",
+          "cognito-idp:AdminDisableUser",
+          "cognito-idp:AdminEnableUser",
+          "cognito-idp:AdminGetUser",
+          "cognito-idp:AdminUserGlobalSignOut",
+        ]
+        Resource = "arn:${var.aws_partition}:cognito-idp:${var.region}:${var.account_id}:userpool/*"
+        Condition = {
+          StringEquals = {
+            "aws:ResourceTag/deployment_id" = var.deployment_id
+            "aws:ResourceTag/purpose"       = "enterprise-human-identity"
+          }
+        }
       },
       {
         Sid    = "DenyControlPlaneEscalation"

@@ -344,6 +344,10 @@ def setup_logging():
         root_logger.removeHandler(handler)
     handler = logging.StreamHandler()
     tenant = os.environ.get('SCANALYZE_TENANT', '').strip()
+    if not tenant and os.environ.get('SCANALYZE_RUNTIME_CONFIG_SOURCE', '').strip().lower() == 'environment':
+        # Environment mode has no tenant: label logs with the processing domain,
+        # or the deployment-wide platform context (ADR-001).
+        tenant = os.environ.get('SCANALYZE_PROCESSING_DOMAIN', '').strip() or 'platform'
     if not tenant:
         raise RuntimeError("SCANALYZE_TENANT is required")
     service = os.environ.get("SERVICE_NAME", os.environ.get("WORKER_MODE", "scanalyze-ocr-worker").lower())

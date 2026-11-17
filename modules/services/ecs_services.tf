@@ -21,7 +21,7 @@ resource "aws_ecs_task_definition" "service" {
   cpu                      = each.value.cpu
   memory                   = each.value.memory
   execution_role_arn       = var.ecs_task_execution_role_arn
-  task_role_arn            = var.workload_role_arns[each.key]
+  task_role_arn            = var.workload_role_arns[local.task_role_service[each.key]]
 
   container_definitions = jsonencode([
     {
@@ -57,13 +57,14 @@ resource "aws_ecs_task_definition" "service" {
           },
         ],
         contains(local.identity_aware_services, each.value.name) ? local.identity_environment : [],
+        local.runtime_environment_by_service[each.key],
         each.value.extra_environment
       )
 
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = "/ecs/${var.deployment_id}/${each.key}"
+          "awslogs-group"         = aws_cloudwatch_log_group.service[each.key].name
           "awslogs-region"        = var.region
           "awslogs-stream-prefix" = "ecs"
         }
@@ -78,7 +79,7 @@ resource "aws_ecs_task_definition" "service" {
     service       = each.key
   }
 
-  depends_on = [terraform_data.identity_contract_gate]
+  depends_on = [terraform_data.identity_contract_gate, terraform_data.runtime_wiring_gate]
 }
 
 resource "aws_ecs_service" "service" {

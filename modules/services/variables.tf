@@ -348,3 +348,44 @@ variable "expected_upstream_digest" {
   type        = string
   description = "Expected upstream contract digest"
 }
+
+variable "runtime_wiring" {
+  type = object({
+    runtime_environment   = string
+    documents_table_name  = string
+    documents_bucket_name = string
+    stage_queue_urls      = map(string)
+  })
+  description = "GUG-108: data-foundation outputs that Terraform injects into every service as runtime configuration (ADR-001). Null keeps the legacy SSM tenant configuration."
+  default     = null
+
+  validation {
+    condition = var.runtime_wiring == null || contains(
+      ["local", "test", "ci", "demo", "sandbox", "dev", "staging", "production"],
+      try(var.runtime_wiring.runtime_environment, ""),
+    )
+    error_message = "runtime_wiring.runtime_environment must be one of local, test, ci, demo, sandbox, dev, staging, production (the SCANALYZE_ENV values the workers accept)."
+  }
+
+  validation {
+    condition = var.runtime_wiring == null || try(toset(keys(var.runtime_wiring.stage_queue_urls)), toset([])) == toset([
+      "ingest", "ocr", "classify", "bank-extract", "personal-extract", "gov-extract", "validate", "persist", "notify",
+    ])
+    error_message = "runtime_wiring.stage_queue_urls must map exactly the nine canonical GUG-89 stages (data-foundation output sqs_queue_urls)."
+  }
+
+  validation {
+    condition = var.runtime_wiring == null || (
+      try(trimspace(var.runtime_wiring.documents_table_name), "") != "" &&
+      try(trimspace(var.runtime_wiring.documents_bucket_name), "") != "" &&
+      alltrue([for url in try(values(var.runtime_wiring.stage_queue_urls), []) : can(regex("^https://sqs\\.", url))])
+    )
+    error_message = "runtime_wiring needs the documents table and bucket names, and HTTPS SQS queue URLs."
+  }
+}
+
+variable "service_log_retention_days" {
+  type        = number
+  description = "Retention for the /ecs/<deployment>/<service> log groups this layer owns."
+  default     = 90
+}

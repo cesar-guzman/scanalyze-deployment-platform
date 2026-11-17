@@ -13,5 +13,5 @@ output "alerts_topic_arn" {
 
 output "log_group_names" {
   description = "Map of service name to CloudWatch log group name"
-  value       = { for k, v in aws_cloudwatch_log_group.service : k => v.name }
+  value       = local.service_log_group_names
 }
