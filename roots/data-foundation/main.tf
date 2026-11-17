@@ -18,6 +18,9 @@ module "data_foundation" {
   release_version         = var.release_version
   release_manifest_digest = var.release_manifest_digest
 
+  # GUG-543: frontend origins allowed to use presigned upload/download URLs.
+  browser_origins = var.browser_origins
+
   upstream_contract_digest = var.upstream_contract_digest
   expected_upstream_digest = var.expected_upstream_digest
 }

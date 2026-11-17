@@ -55,3 +55,10 @@ variable "accepted_schema_versions" {
   default     = ["2"]
   description = "List of accepted upstream contract schema versions"
 }
+
+# ── GUG-543: browser access to presigned URLs ──
+variable "browser_origins" {
+  type        = list(string)
+  description = "HTTPS origins of the frontend, for example [\"https://pilot.scanalyze.cloud\"]. The module validates the format."
+  default     = []
+}
