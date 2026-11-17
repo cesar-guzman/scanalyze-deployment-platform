@@ -19,7 +19,7 @@ publication. `scripts/deployment/scanalyze-deploy.sh` is not used.
 > [Known gaps](#known-gaps)). Their tfvars are otherwise accepted. Until those
 > are fixed, layers 1-5 (global to cicd) and addons can be applied; services,
 > edge-identity and edge cannot. A working document pipeline also needs PR #135
-> (B5).
+> (B5) and GUG-542 (B6).
 
 ## Files
 
@@ -150,23 +150,32 @@ shows the dedicated account. Region is `us-east-1` (see G4).
 
    Put the bucket, the key and the printed VersionId in the config. The kit
    derives the base64 SHA-256 (`source_code_hash`) from the key; see B1.
-8. **Bedrock model access** in the region for the module defaults
-   `amazon.nova-lite-v1:0` (classifier) and
-   `anthropic.claude-3-haiku-20240307-v1:0` (bank, personal, gov). Check they
-   are listed and active, and complete the Anthropic use-case form if the
-   console asks for it:
+8. **Bedrock model access** in the deployment region for the defaults
+   `amazon.nova-lite-v1:0` (classifier) and the US inference profile
+   `us.anthropic.claude-haiku-4-5-20251001-v1:0` (bank, personal, gov; from
+   GUG-542, see B6). Bedrock serves Claude Haiku 4.5 on demand only through an
+   inference profile, and this one can route requests to other US Regions.
+   Check that both base models are active and the profile exists, and complete
+   the Anthropic use-case form if the console asks for it:
 
    ```bash
    aws bedrock list-foundation-models --region us-east-1 \
-     --query "modelSummaries[?modelId=='amazon.nova-lite-v1:0' || modelId=='anthropic.claude-3-haiku-20240307-v1:0'].[modelId,modelLifecycle.status]"
+     --query "modelSummaries[?modelId=='amazon.nova-lite-v1:0' || modelId=='anthropic.claude-haiku-4-5-20251001-v1:0'].[modelId,modelLifecycle.status]"
+   aws bedrock get-inference-profile --region us-east-1 \
+     --inference-profile-identifier us.anthropic.claude-haiku-4-5-20251001-v1:0 \
+     --query "[status,models[].modelArn]"
    ```
+
+   The second command lists the Regions behind the profile. An SCP that
+   restricts Regions must allow Bedrock in all of them.
 
 9. **ECR and images.** After cicd, publish the seven images with the PR #136
    runbook `docs/operations/direct-path-publish.md`
    (`publish-direct-release.sh`, which needs a base image mirrored into a
    `<dep-ulid>/scanalyze/base` repository you create), then render the services
    inputs with `render-direct-service-definitions.py` (step 3 below).
-10. **Merge PR #135 and PR #136 first** if possible: see B5, G1 and G2.
+10. **Merge PR #135, PR #136 and GUG-542 first** if possible: see B5, B6, G1
+    and G2.
 
 ## 1. Work directory and config
 
@@ -414,6 +423,16 @@ outputs and edge reads edge-identity, B1-B3 block layers 6 and 8-10.
   on the direct path writes (`backend/workers/scanalyze-bank-worker/src/bank_worker/config.py:24-33`).
   PR #135 adds `runtime_wiring`; the kit fills it from the data-foundation
   outputs and the config `environment`.
+- **B6. Extraction fails without GUG-542.** On this branch the bank, personal
+  and gov workers default to `anthropic.claude-3-haiku-20240307-v1:0`
+  (`backend/workers/scanalyze-bank-worker/src/bank_worker/processors/extract.py:205`
+  and the same call in the personal and gov workers), and so does
+  `bedrock_extractor_model_ids` (`modules/global/variables.tf:81`,
+  `roots/global/variables.tf:82`). Claude 3 Haiku reached end of life on Bedrock
+  (2026-09-10 in most Regions), so every extraction call fails. GUG-542
+  (`fix/gug-542-bank-extraction-model-reconciliation`) moves both to
+  `us.anthropic.claude-haiku-4-5-20251001-v1:0`. Build the images from a commit
+  that includes it.
 
 ### Other gaps
 
@@ -475,8 +494,9 @@ None of these was checked against AWS.
 - The identity zip runs on python3.12 arm64 with only the runtime's boto3, and
   its key's sha256 matches the uploaded object (`aws lambda get-function`
   `CodeSha256` equals the derived `sha256_b64` after apply).
-- Bedrock access for both default model IDs in us-east-1, and Textract for the
-  OCR worker.
+- Bedrock access in us-east-1 for `amazon.nova-lite-v1:0` and the
+  `us.anthropic.claude-haiku-4-5-20251001-v1:0` profile (prerequisite 8), and
+  Textract for the OCR worker.
 - Cost: Cognito Plus tier with ENFORCED advanced security
   (`modules/identity-control-plane/cognito.tf:4`, `:39`) and M2M token requests,
   NAT gateways, interface endpoints, Fargate tasks, CloudFront and WAF.

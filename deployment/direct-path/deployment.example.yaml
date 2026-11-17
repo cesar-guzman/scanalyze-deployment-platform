@@ -34,9 +34,11 @@ internal_certificate_arn: arn:aws:acm:us-east-1:123456789012:certificate/0000000
 api_access_log_group_arn: arn:aws:logs:us-east-1:123456789012:log-group:/scanalyze/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/api-access
 
 # ── Optional global-layer overrides (module defaults match the service code) ──
+# The extractor value is the default from GUG-542 on. Claude 3 Haiku reached end
+# of life on Bedrock.
 # global:
 #   bedrock_classifier_model_ids: ["amazon.nova-lite-v1:0"]
-#   bedrock_extractor_model_ids: ["anthropic.claude-3-haiku-20240307-v1:0"]
+#   bedrock_extractor_model_ids: ["us.anthropic.claude-haiku-4-5-20251001-v1:0"]
 #   runtime_parameter_path_prefix: /scanalyze
 
 # ── Network ──
