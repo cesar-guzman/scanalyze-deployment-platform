@@ -238,3 +238,18 @@ variable "service_definitions" {
     error_message = "extra_environment cannot override Terraform-owned identity or release variables"
   }
 }
+
+# ── GUG-108: runtime wiring ──
+# Copy these values from the data-foundation outputs (documents_table_name,
+# documents_bucket_name, sqs_queue_urls). Null keeps the legacy SSM tenant
+# configuration; the module validates the shape.
+variable "runtime_wiring" {
+  type = object({
+    runtime_environment   = string
+    documents_table_name  = string
+    documents_bucket_name = string
+    stage_queue_urls      = map(string)
+  })
+  description = "Runtime configuration Terraform injects into every service (ADR-001)."
+  default     = null
+}
