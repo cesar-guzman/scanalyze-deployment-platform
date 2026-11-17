@@ -1,0 +1,37 @@
+{
+  "contract_payload": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "layer": "string",
+        "outputs": [
+          "object",
+          {
+            "alb_arn": "string",
+            "alb_dns_name": "string",
+            "alb_listener_arn": "string",
+            "alb_security_group_id": "string",
+            "ecs_cluster_arn": "string",
+            "ecs_cluster_name": "string"
+          }
+        ],
+        "schema_version": "string",
+        "state_scope": "string"
+      }
+    ],
+    "value": {
+      "layer": "container-platform",
+      "outputs": {
+        "alb_arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/alb-01arz3ndektsv4rrffq69g5fav/6e226a9abab47f9e",
+        "alb_dns_name": "internal-alb-01arz3ndektsv4rrffq69g5fav-3584231c.us-east-1.elb.amazonaws.com",
+        "alb_listener_arn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/alb-01arz3ndektsv4rrffq69g5fav/6e226a9abab47f9e/c4c05d40a8c3ebc0",
+        "alb_security_group_id": "sg-4b476b9ac81699273",
+        "ecs_cluster_arn": "arn:aws:ecs:us-east-1:123456789012:cluster/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cluster",
+        "ecs_cluster_name": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cluster"
+      },
+      "schema_version": "2",
+      "state_scope": "regional"
+    }
+  }
+}

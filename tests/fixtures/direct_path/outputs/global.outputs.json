@@ -1,0 +1,91 @@
+{
+  "contract_payload": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "layer": "string",
+        "outputs": [
+          "object",
+          {
+            "ecs_execution_role_arn": "string",
+            "ecs_task_role_arns": [
+              "object",
+              {
+                "scanalyze-bank-worker": "string",
+                "scanalyze-classifier-worker": "string",
+                "scanalyze-gov-worker": "string",
+                "scanalyze-ingest-api": "string",
+                "scanalyze-ocr-worker": "string",
+                "scanalyze-personal-worker": "string",
+                "scanalyze-postprocess-worker": "string"
+              }
+            ],
+            "identity_runtime_permissions_boundary_arn": "string",
+            "permissions_boundary_arn": "string"
+          }
+        ],
+        "schema_version": "string",
+        "state_scope": "string"
+      }
+    ],
+    "value": {
+      "layer": "global",
+      "outputs": {
+        "ecs_execution_role_arn": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ecs-task-execution",
+        "ecs_task_role_arns": {
+          "scanalyze-bank-worker": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-bank-worker",
+          "scanalyze-classifier-worker": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-classifier-worker",
+          "scanalyze-gov-worker": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-gov-worker",
+          "scanalyze-ingest-api": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-ingest-api",
+          "scanalyze-ocr-worker": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-ocr-worker",
+          "scanalyze-personal-worker": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-personal-worker",
+          "scanalyze-postprocess-worker": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-postprocess-worker"
+        },
+        "identity_runtime_permissions_boundary_arn": "arn:aws:iam::123456789012:policy/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-identity-runtime-boundary",
+        "permissions_boundary_arn": "arn:aws:iam::123456789012:policy/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-boundary"
+      },
+      "schema_version": "1",
+      "state_scope": "global"
+    }
+  },
+  "ecs_execution_role_arn": {
+    "sensitive": false,
+    "type": "string",
+    "value": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ecs-task-execution"
+  },
+  "ecs_task_role_arns": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "scanalyze-bank-worker": "string",
+        "scanalyze-classifier-worker": "string",
+        "scanalyze-gov-worker": "string",
+        "scanalyze-ingest-api": "string",
+        "scanalyze-ocr-worker": "string",
+        "scanalyze-personal-worker": "string",
+        "scanalyze-postprocess-worker": "string"
+      }
+    ],
+    "value": {
+      "scanalyze-bank-worker": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-bank-worker",
+      "scanalyze-classifier-worker": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-classifier-worker",
+      "scanalyze-gov-worker": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-gov-worker",
+      "scanalyze-ingest-api": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-ingest-api",
+      "scanalyze-ocr-worker": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-ocr-worker",
+      "scanalyze-personal-worker": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-personal-worker",
+      "scanalyze-postprocess-worker": "arn:aws:iam::123456789012:role/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-postprocess-worker"
+    }
+  },
+  "identity_runtime_permissions_boundary_arn": {
+    "sensitive": false,
+    "type": "string",
+    "value": "arn:aws:iam::123456789012:policy/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-identity-runtime-boundary"
+  },
+  "permissions_boundary_arn": {
+    "sensitive": false,
+    "type": "string",
+    "value": "arn:aws:iam::123456789012:policy/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-workload-boundary"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "contract_payload": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "layer": "string",
+        "outputs": [
+          "object",
+          {
+            "service_arns": [
+              "object",
+              {
+                "scanalyze-bank-worker": "string",
+                "scanalyze-classifier-worker": "string",
+                "scanalyze-gov-worker": "string",
+                "scanalyze-ingest-api": "string",
+                "scanalyze-ocr-worker": "string",
+                "scanalyze-personal-worker": "string",
+                "scanalyze-postprocess-worker": "string"
+              }
+            ],
+            "target_group_arns": [
+              "object",
+              {
+                "scanalyze-ingest-api": "string"
+              }
+            ],
+            "task_definition_arns": [
+              "object",
+              {
+                "scanalyze-bank-worker": "string",
+                "scanalyze-classifier-worker": "string",
+                "scanalyze-gov-worker": "string",
+                "scanalyze-ingest-api": "string",
+                "scanalyze-ocr-worker": "string",
+                "scanalyze-personal-worker": "string",
+                "scanalyze-postprocess-worker": "string"
+              }
+            ]
+          }
+        ],
+        "schema_version": "string",
+        "state_scope": "string"
+      }
+    ],
+    "value": {
+      "layer": "services",
+      "outputs": {
+        "service_arns": {
+          "scanalyze-bank-worker": "arn:aws:ecs:us-east-1:123456789012:service/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cluster/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-bank-worker",
+          "scanalyze-classifier-worker": "arn:aws:ecs:us-east-1:123456789012:service/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cluster/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-classifier-worker",
+          "scanalyze-gov-worker": "arn:aws:ecs:us-east-1:123456789012:service/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cluster/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-gov-worker",
+          "scanalyze-ingest-api": "arn:aws:ecs:us-east-1:123456789012:service/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cluster/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-ingest-api",
+          "scanalyze-ocr-worker": "arn:aws:ecs:us-east-1:123456789012:service/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cluster/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-ocr-worker",
+          "scanalyze-personal-worker": "arn:aws:ecs:us-east-1:123456789012:service/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cluster/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-personal-worker",
+          "scanalyze-postprocess-worker": "arn:aws:ecs:us-east-1:123456789012:service/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-cluster/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-postprocess-worker"
+        },
+        "target_group_arns": {
+          "scanalyze-ingest-api": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/tg-db568b8abb2c8bc9f0b1da724994/97424f4f08fe99ae"
+        },
+        "task_definition_arns": {
+          "scanalyze-bank-worker": "arn:aws:ecs:us-east-1:123456789012:task-definition/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-bank-worker:1",
+          "scanalyze-classifier-worker": "arn:aws:ecs:us-east-1:123456789012:task-definition/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-classifier-worker:1",
+          "scanalyze-gov-worker": "arn:aws:ecs:us-east-1:123456789012:task-definition/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-gov-worker:1",
+          "scanalyze-ingest-api": "arn:aws:ecs:us-east-1:123456789012:task-definition/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-ingest-api:1",
+          "scanalyze-ocr-worker": "arn:aws:ecs:us-east-1:123456789012:task-definition/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-ocr-worker:1",
+          "scanalyze-personal-worker": "arn:aws:ecs:us-east-1:123456789012:task-definition/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-personal-worker:1",
+          "scanalyze-postprocess-worker": "arn:aws:ecs:us-east-1:123456789012:task-definition/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-scanalyze-postprocess-worker:1"
+        }
+      },
+      "schema_version": "2",
+      "state_scope": "regional"
+    }
+  }
+}

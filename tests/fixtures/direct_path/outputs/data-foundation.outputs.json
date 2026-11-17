@@ -1,0 +1,784 @@
+{
+  "contract_payload": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "layer": "string",
+        "outputs": [
+          "object",
+          {
+            "data_kms_key_arn": "string",
+            "documents_bucket_arn": "string",
+            "documents_bucket_name": "string",
+            "documents_table_arn": "string",
+            "documents_table_name": "string",
+            "jobs_table_name": "string",
+            "queue_topology": [
+              "object",
+              {
+                "bank-extract": [
+                  "object",
+                  {
+                    "consumer": "string",
+                    "consumer_mode": "string",
+                    "max_receive_count": "number",
+                    "producers": [
+                      "tuple",
+                      [
+                        "string",
+                        "string"
+                      ]
+                    ],
+                    "queue_type": "string",
+                    "visibility_timeout_seconds": "number"
+                  }
+                ],
+                "classify": [
+                  "object",
+                  {
+                    "consumer": "string",
+                    "consumer_mode": "string",
+                    "max_receive_count": "number",
+                    "producers": [
+                      "tuple",
+                      [
+                        "string"
+                      ]
+                    ],
+                    "queue_type": "string",
+                    "visibility_timeout_seconds": "number"
+                  }
+                ],
+                "gov-extract": [
+                  "object",
+                  {
+                    "consumer": "string",
+                    "consumer_mode": "string",
+                    "max_receive_count": "number",
+                    "producers": [
+                      "tuple",
+                      [
+                        "string",
+                        "string"
+                      ]
+                    ],
+                    "queue_type": "string",
+                    "visibility_timeout_seconds": "number"
+                  }
+                ],
+                "ingest": [
+                  "object",
+                  {
+                    "consumer": "string",
+                    "consumer_mode": "string",
+                    "max_receive_count": "number",
+                    "producers": [
+                      "tuple",
+                      [
+                        "string"
+                      ]
+                    ],
+                    "queue_type": "string",
+                    "visibility_timeout_seconds": "number"
+                  }
+                ],
+                "notify": [
+                  "object",
+                  {
+                    "consumer": "string",
+                    "consumer_mode": "string",
+                    "max_receive_count": "number",
+                    "producers": [
+                      "tuple",
+                      [
+                        "string"
+                      ]
+                    ],
+                    "queue_type": "string",
+                    "visibility_timeout_seconds": "number"
+                  }
+                ],
+                "ocr": [
+                  "object",
+                  {
+                    "consumer": "string",
+                    "consumer_mode": "string",
+                    "max_receive_count": "number",
+                    "producers": [
+                      "tuple",
+                      [
+                        "string"
+                      ]
+                    ],
+                    "queue_type": "string",
+                    "visibility_timeout_seconds": "number"
+                  }
+                ],
+                "persist": [
+                  "object",
+                  {
+                    "consumer": "string",
+                    "consumer_mode": "string",
+                    "max_receive_count": "number",
+                    "producers": [
+                      "tuple",
+                      [
+                        "string"
+                      ]
+                    ],
+                    "queue_type": "string",
+                    "visibility_timeout_seconds": "number"
+                  }
+                ],
+                "personal-extract": [
+                  "object",
+                  {
+                    "consumer": "string",
+                    "consumer_mode": "string",
+                    "max_receive_count": "number",
+                    "producers": [
+                      "tuple",
+                      [
+                        "string",
+                        "string"
+                      ]
+                    ],
+                    "queue_type": "string",
+                    "visibility_timeout_seconds": "number"
+                  }
+                ],
+                "validate": [
+                  "object",
+                  {
+                    "consumer": "string",
+                    "consumer_mode": "string",
+                    "max_receive_count": "number",
+                    "producers": [
+                      "tuple",
+                      [
+                        "string",
+                        "string",
+                        "string"
+                      ]
+                    ],
+                    "queue_type": "string",
+                    "visibility_timeout_seconds": "number"
+                  }
+                ]
+              }
+            ],
+            "sqs_dlq_arns": [
+              "object",
+              {
+                "bank-extract": "string",
+                "classify": "string",
+                "gov-extract": "string",
+                "ingest": "string",
+                "notify": "string",
+                "ocr": "string",
+                "persist": "string",
+                "personal-extract": "string",
+                "validate": "string"
+              }
+            ],
+            "sqs_dlq_urls": [
+              "object",
+              {
+                "bank-extract": "string",
+                "classify": "string",
+                "gov-extract": "string",
+                "ingest": "string",
+                "notify": "string",
+                "ocr": "string",
+                "persist": "string",
+                "personal-extract": "string",
+                "validate": "string"
+              }
+            ],
+            "sqs_queue_arns": [
+              "object",
+              {
+                "bank-extract": "string",
+                "classify": "string",
+                "gov-extract": "string",
+                "ingest": "string",
+                "notify": "string",
+                "ocr": "string",
+                "persist": "string",
+                "personal-extract": "string",
+                "validate": "string"
+              }
+            ],
+            "sqs_queue_urls": [
+              "object",
+              {
+                "bank-extract": "string",
+                "classify": "string",
+                "gov-extract": "string",
+                "ingest": "string",
+                "notify": "string",
+                "ocr": "string",
+                "persist": "string",
+                "personal-extract": "string",
+                "validate": "string"
+              }
+            ]
+          }
+        ],
+        "schema_version": "string",
+        "state_scope": "string"
+      }
+    ],
+    "value": {
+      "layer": "data-foundation",
+      "outputs": {
+        "data_kms_key_arn": "arn:aws:kms:us-east-1:123456789012:key/de1bef7a-0000-4000-8000-32b12069e9f7",
+        "documents_bucket_arn": "arn:aws:s3:::dep-01arz3ndektsv4rrffq69g5fav-documents",
+        "documents_bucket_name": "dep-01arz3ndektsv4rrffq69g5fav-documents",
+        "documents_table_arn": "arn:aws:dynamodb:us-east-1:123456789012:table/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-documents",
+        "documents_table_name": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-documents",
+        "jobs_table_name": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-jobs",
+        "queue_topology": {
+          "bank-extract": {
+            "consumer": "bank-worker",
+            "consumer_mode": "BANK_EXTRACT",
+            "max_receive_count": 3,
+            "producers": [
+              "ocr-worker",
+              "classifier-worker"
+            ],
+            "queue_type": "standard",
+            "visibility_timeout_seconds": 300
+          },
+          "classify": {
+            "consumer": "classifier-worker",
+            "consumer_mode": "CLASSIFY",
+            "max_receive_count": 3,
+            "producers": [
+              "ocr-worker"
+            ],
+            "queue_type": "standard",
+            "visibility_timeout_seconds": 300
+          },
+          "gov-extract": {
+            "consumer": "gov-worker",
+            "consumer_mode": "GOV_EXTRACT",
+            "max_receive_count": 3,
+            "producers": [
+              "ocr-worker",
+              "classifier-worker"
+            ],
+            "queue_type": "standard",
+            "visibility_timeout_seconds": 300
+          },
+          "ingest": {
+            "consumer": "ocr-worker",
+            "consumer_mode": "INGEST",
+            "max_receive_count": 3,
+            "producers": [
+              "ingest-api"
+            ],
+            "queue_type": "standard",
+            "visibility_timeout_seconds": 300
+          },
+          "notify": {
+            "consumer": "postprocess-worker",
+            "consumer_mode": "NOTIFY",
+            "max_receive_count": 3,
+            "producers": [
+              "postprocess-worker"
+            ],
+            "queue_type": "standard",
+            "visibility_timeout_seconds": 300
+          },
+          "ocr": {
+            "consumer": "ocr-worker",
+            "consumer_mode": "OCR_POLL",
+            "max_receive_count": 3,
+            "producers": [
+              "ocr-worker"
+            ],
+            "queue_type": "standard",
+            "visibility_timeout_seconds": 300
+          },
+          "persist": {
+            "consumer": "postprocess-worker",
+            "consumer_mode": "PERSIST",
+            "max_receive_count": 3,
+            "producers": [
+              "postprocess-worker"
+            ],
+            "queue_type": "standard",
+            "visibility_timeout_seconds": 300
+          },
+          "personal-extract": {
+            "consumer": "personal-worker",
+            "consumer_mode": "PERSONAL_EXTRACT",
+            "max_receive_count": 3,
+            "producers": [
+              "ocr-worker",
+              "classifier-worker"
+            ],
+            "queue_type": "standard",
+            "visibility_timeout_seconds": 300
+          },
+          "validate": {
+            "consumer": "postprocess-worker",
+            "consumer_mode": "VALIDATE",
+            "max_receive_count": 3,
+            "producers": [
+              "bank-worker",
+              "personal-worker",
+              "gov-worker"
+            ],
+            "queue_type": "standard",
+            "visibility_timeout_seconds": 300
+          }
+        },
+        "sqs_dlq_arns": {
+          "bank-extract": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-bank-extract-stage-dlq",
+          "classify": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-classify-stage-dlq",
+          "gov-extract": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-gov-extract-stage-dlq",
+          "ingest": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ingest-stage-dlq",
+          "notify": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-notify-stage-dlq",
+          "ocr": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ocr-stage-dlq",
+          "persist": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-persist-stage-dlq",
+          "personal-extract": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-personal-extract-stage-dlq",
+          "validate": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-validate-stage-dlq"
+        },
+        "sqs_dlq_urls": {
+          "bank-extract": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-bank-extract-stage-dlq",
+          "classify": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-classify-stage-dlq",
+          "gov-extract": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-gov-extract-stage-dlq",
+          "ingest": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ingest-stage-dlq",
+          "notify": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-notify-stage-dlq",
+          "ocr": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ocr-stage-dlq",
+          "persist": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-persist-stage-dlq",
+          "personal-extract": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-personal-extract-stage-dlq",
+          "validate": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-validate-stage-dlq"
+        },
+        "sqs_queue_arns": {
+          "bank-extract": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-bank-extract-stage-queue",
+          "classify": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-classify-stage-queue",
+          "gov-extract": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-gov-extract-stage-queue",
+          "ingest": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ingest-stage-queue",
+          "notify": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-notify-stage-queue",
+          "ocr": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ocr-stage-queue",
+          "persist": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-persist-stage-queue",
+          "personal-extract": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-personal-extract-stage-queue",
+          "validate": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-validate-stage-queue"
+        },
+        "sqs_queue_urls": {
+          "bank-extract": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-bank-extract-stage-queue",
+          "classify": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-classify-stage-queue",
+          "gov-extract": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-gov-extract-stage-queue",
+          "ingest": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ingest-stage-queue",
+          "notify": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-notify-stage-queue",
+          "ocr": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ocr-stage-queue",
+          "persist": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-persist-stage-queue",
+          "personal-extract": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-personal-extract-stage-queue",
+          "validate": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-validate-stage-queue"
+        }
+      },
+      "schema_version": "2",
+      "state_scope": "regional"
+    }
+  },
+  "data_kms_key_arn": {
+    "sensitive": false,
+    "type": "string",
+    "value": "arn:aws:kms:us-east-1:123456789012:key/de1bef7a-0000-4000-8000-32b12069e9f7"
+  },
+  "documents_bucket_arn": {
+    "sensitive": false,
+    "type": "string",
+    "value": "arn:aws:s3:::dep-01arz3ndektsv4rrffq69g5fav-documents"
+  },
+  "documents_bucket_name": {
+    "sensitive": false,
+    "type": "string",
+    "value": "dep-01arz3ndektsv4rrffq69g5fav-documents"
+  },
+  "documents_table_arn": {
+    "sensitive": false,
+    "type": "string",
+    "value": "arn:aws:dynamodb:us-east-1:123456789012:table/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-documents"
+  },
+  "documents_table_name": {
+    "sensitive": false,
+    "type": "string",
+    "value": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-documents"
+  },
+  "jobs_table_name": {
+    "sensitive": false,
+    "type": "string",
+    "value": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-jobs"
+  },
+  "queue_topology": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "bank-extract": [
+          "object",
+          {
+            "consumer": "string",
+            "consumer_mode": "string",
+            "max_receive_count": "number",
+            "producers": [
+              "tuple",
+              [
+                "string",
+                "string"
+              ]
+            ],
+            "queue_type": "string",
+            "visibility_timeout_seconds": "number"
+          }
+        ],
+        "classify": [
+          "object",
+          {
+            "consumer": "string",
+            "consumer_mode": "string",
+            "max_receive_count": "number",
+            "producers": [
+              "tuple",
+              [
+                "string"
+              ]
+            ],
+            "queue_type": "string",
+            "visibility_timeout_seconds": "number"
+          }
+        ],
+        "gov-extract": [
+          "object",
+          {
+            "consumer": "string",
+            "consumer_mode": "string",
+            "max_receive_count": "number",
+            "producers": [
+              "tuple",
+              [
+                "string",
+                "string"
+              ]
+            ],
+            "queue_type": "string",
+            "visibility_timeout_seconds": "number"
+          }
+        ],
+        "ingest": [
+          "object",
+          {
+            "consumer": "string",
+            "consumer_mode": "string",
+            "max_receive_count": "number",
+            "producers": [
+              "tuple",
+              [
+                "string"
+              ]
+            ],
+            "queue_type": "string",
+            "visibility_timeout_seconds": "number"
+          }
+        ],
+        "notify": [
+          "object",
+          {
+            "consumer": "string",
+            "consumer_mode": "string",
+            "max_receive_count": "number",
+            "producers": [
+              "tuple",
+              [
+                "string"
+              ]
+            ],
+            "queue_type": "string",
+            "visibility_timeout_seconds": "number"
+          }
+        ],
+        "ocr": [
+          "object",
+          {
+            "consumer": "string",
+            "consumer_mode": "string",
+            "max_receive_count": "number",
+            "producers": [
+              "tuple",
+              [
+                "string"
+              ]
+            ],
+            "queue_type": "string",
+            "visibility_timeout_seconds": "number"
+          }
+        ],
+        "persist": [
+          "object",
+          {
+            "consumer": "string",
+            "consumer_mode": "string",
+            "max_receive_count": "number",
+            "producers": [
+              "tuple",
+              [
+                "string"
+              ]
+            ],
+            "queue_type": "string",
+            "visibility_timeout_seconds": "number"
+          }
+        ],
+        "personal-extract": [
+          "object",
+          {
+            "consumer": "string",
+            "consumer_mode": "string",
+            "max_receive_count": "number",
+            "producers": [
+              "tuple",
+              [
+                "string",
+                "string"
+              ]
+            ],
+            "queue_type": "string",
+            "visibility_timeout_seconds": "number"
+          }
+        ],
+        "validate": [
+          "object",
+          {
+            "consumer": "string",
+            "consumer_mode": "string",
+            "max_receive_count": "number",
+            "producers": [
+              "tuple",
+              [
+                "string",
+                "string",
+                "string"
+              ]
+            ],
+            "queue_type": "string",
+            "visibility_timeout_seconds": "number"
+          }
+        ]
+      }
+    ],
+    "value": {
+      "bank-extract": {
+        "consumer": "bank-worker",
+        "consumer_mode": "BANK_EXTRACT",
+        "max_receive_count": 3,
+        "producers": [
+          "ocr-worker",
+          "classifier-worker"
+        ],
+        "queue_type": "standard",
+        "visibility_timeout_seconds": 300
+      },
+      "classify": {
+        "consumer": "classifier-worker",
+        "consumer_mode": "CLASSIFY",
+        "max_receive_count": 3,
+        "producers": [
+          "ocr-worker"
+        ],
+        "queue_type": "standard",
+        "visibility_timeout_seconds": 300
+      },
+      "gov-extract": {
+        "consumer": "gov-worker",
+        "consumer_mode": "GOV_EXTRACT",
+        "max_receive_count": 3,
+        "producers": [
+          "ocr-worker",
+          "classifier-worker"
+        ],
+        "queue_type": "standard",
+        "visibility_timeout_seconds": 300
+      },
+      "ingest": {
+        "consumer": "ocr-worker",
+        "consumer_mode": "INGEST",
+        "max_receive_count": 3,
+        "producers": [
+          "ingest-api"
+        ],
+        "queue_type": "standard",
+        "visibility_timeout_seconds": 300
+      },
+      "notify": {
+        "consumer": "postprocess-worker",
+        "consumer_mode": "NOTIFY",
+        "max_receive_count": 3,
+        "producers": [
+          "postprocess-worker"
+        ],
+        "queue_type": "standard",
+        "visibility_timeout_seconds": 300
+      },
+      "ocr": {
+        "consumer": "ocr-worker",
+        "consumer_mode": "OCR_POLL",
+        "max_receive_count": 3,
+        "producers": [
+          "ocr-worker"
+        ],
+        "queue_type": "standard",
+        "visibility_timeout_seconds": 300
+      },
+      "persist": {
+        "consumer": "postprocess-worker",
+        "consumer_mode": "PERSIST",
+        "max_receive_count": 3,
+        "producers": [
+          "postprocess-worker"
+        ],
+        "queue_type": "standard",
+        "visibility_timeout_seconds": 300
+      },
+      "personal-extract": {
+        "consumer": "personal-worker",
+        "consumer_mode": "PERSONAL_EXTRACT",
+        "max_receive_count": 3,
+        "producers": [
+          "ocr-worker",
+          "classifier-worker"
+        ],
+        "queue_type": "standard",
+        "visibility_timeout_seconds": 300
+      },
+      "validate": {
+        "consumer": "postprocess-worker",
+        "consumer_mode": "VALIDATE",
+        "max_receive_count": 3,
+        "producers": [
+          "bank-worker",
+          "personal-worker",
+          "gov-worker"
+        ],
+        "queue_type": "standard",
+        "visibility_timeout_seconds": 300
+      }
+    }
+  },
+  "sqs_dlq_arns": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "bank-extract": "string",
+        "classify": "string",
+        "gov-extract": "string",
+        "ingest": "string",
+        "notify": "string",
+        "ocr": "string",
+        "persist": "string",
+        "personal-extract": "string",
+        "validate": "string"
+      }
+    ],
+    "value": {
+      "bank-extract": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-bank-extract-stage-dlq",
+      "classify": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-classify-stage-dlq",
+      "gov-extract": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-gov-extract-stage-dlq",
+      "ingest": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ingest-stage-dlq",
+      "notify": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-notify-stage-dlq",
+      "ocr": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ocr-stage-dlq",
+      "persist": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-persist-stage-dlq",
+      "personal-extract": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-personal-extract-stage-dlq",
+      "validate": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-validate-stage-dlq"
+    }
+  },
+  "sqs_dlq_urls": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "bank-extract": "string",
+        "classify": "string",
+        "gov-extract": "string",
+        "ingest": "string",
+        "notify": "string",
+        "ocr": "string",
+        "persist": "string",
+        "personal-extract": "string",
+        "validate": "string"
+      }
+    ],
+    "value": {
+      "bank-extract": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-bank-extract-stage-dlq",
+      "classify": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-classify-stage-dlq",
+      "gov-extract": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-gov-extract-stage-dlq",
+      "ingest": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ingest-stage-dlq",
+      "notify": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-notify-stage-dlq",
+      "ocr": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ocr-stage-dlq",
+      "persist": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-persist-stage-dlq",
+      "personal-extract": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-personal-extract-stage-dlq",
+      "validate": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-validate-stage-dlq"
+    }
+  },
+  "sqs_queue_arns": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "bank-extract": "string",
+        "classify": "string",
+        "gov-extract": "string",
+        "ingest": "string",
+        "notify": "string",
+        "ocr": "string",
+        "persist": "string",
+        "personal-extract": "string",
+        "validate": "string"
+      }
+    ],
+    "value": {
+      "bank-extract": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-bank-extract-stage-queue",
+      "classify": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-classify-stage-queue",
+      "gov-extract": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-gov-extract-stage-queue",
+      "ingest": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ingest-stage-queue",
+      "notify": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-notify-stage-queue",
+      "ocr": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ocr-stage-queue",
+      "persist": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-persist-stage-queue",
+      "personal-extract": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-personal-extract-stage-queue",
+      "validate": "arn:aws:sqs:us-east-1:123456789012:dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-validate-stage-queue"
+    }
+  },
+  "sqs_queue_urls": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "bank-extract": "string",
+        "classify": "string",
+        "gov-extract": "string",
+        "ingest": "string",
+        "notify": "string",
+        "ocr": "string",
+        "persist": "string",
+        "personal-extract": "string",
+        "validate": "string"
+      }
+    ],
+    "value": {
+      "bank-extract": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-bank-extract-stage-queue",
+      "classify": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-classify-stage-queue",
+      "gov-extract": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-gov-extract-stage-queue",
+      "ingest": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ingest-stage-queue",
+      "notify": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-notify-stage-queue",
+      "ocr": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-ocr-stage-queue",
+      "persist": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-persist-stage-queue",
+      "personal-extract": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-personal-extract-stage-queue",
+      "validate": "https://sqs.us-east-1.amazonaws.com/123456789012/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV-validate-stage-queue"
+    }
+  }
+}
