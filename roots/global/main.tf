@@ -19,5 +19,10 @@ module "global" {
   release_version         = var.release_version
   release_manifest_digest = var.release_manifest_digest
 
+  # GUG-541: models and SSM prefix the workload identity policies allow.
+  bedrock_classifier_model_ids  = var.bedrock_classifier_model_ids
+  bedrock_extractor_model_ids   = var.bedrock_extractor_model_ids
+  runtime_parameter_path_prefix = var.runtime_parameter_path_prefix
+
   # service_names and ecs_task_execution_managed_policies have defaults in module
 }

@@ -66,3 +66,24 @@ variable "accepted_schema_versions" {
   default     = ["2"]
   description = "List of accepted upstream contract schema versions"
 }
+
+# ── GUG-541: workload identity policy inputs ──
+# Defaults match the service code; module validation rejects wildcards.
+
+variable "bedrock_classifier_model_ids" {
+  type        = list(string)
+  description = "Bedrock model or inference-profile IDs the classifier worker may invoke."
+  default     = ["amazon.nova-lite-v1:0"]
+}
+
+variable "bedrock_extractor_model_ids" {
+  type        = list(string)
+  description = "Bedrock model or inference-profile IDs the bank, personal and gov workers may invoke."
+  default     = ["anthropic.claude-3-haiku-20240307-v1:0"]
+}
+
+variable "runtime_parameter_path_prefix" {
+  type        = string
+  description = "SSM path prefix the workloads read runtime configuration from."
+  default     = "/scanalyze"
+}
