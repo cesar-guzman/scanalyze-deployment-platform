@@ -1,11 +1,16 @@
 import json
 import logging
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Optional, Tuple
 from .aws import bedrock_client
+from .model_profile import inference_config
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "2.1.0"
+PROMPT_VERSION = "2.2.0"
+
+# Per-call output budget. Chunks hold a few pages, so this leaves room for hundreds
+# of transactions; Claude 3 models are clamped to their own lower cap.
+MAX_OUTPUT_TOKENS = 16000
 
 SYSTEM_PROMPT = """Actúas como un extractor determinista de datos financieros especializado en estados de cuenta bancarios de cualquier banco del mundo (México, Estados Unidos, Europa, etc).
 
@@ -26,10 +31,28 @@ Reglas estrictas:
 14. Si la CLABE interbancaria completa (18 dígitos) está visible en el documento, extráela en account.clabe SIN espacios. Si está parcialmente visible o enmascarada, usa account.clabeMasked.
 15. Si el número de cuenta completo está visible, extráelo en account.number. Para versiones parciales usa account.numberMasked."""
 
-def get_user_prompt(document_id: str, model_id: str, ocr_text: str) -> str:
+def _fragment_rules(page_span: Optional[Tuple[int, int]], total_pages: Optional[int]) -> str:
+    if page_span is None or total_pages is None or total_pages <= 1:
+        return ""
+    first, last = page_span
+    pages = f"la página {first}" if first == last else f"las páginas {first} a {last}"
+    return f"""
+Este texto es un fragmento: contiene {pages} de un estado de cuenta de {total_pages} páginas.
+- Extrae solo las transacciones que aparecen en este fragmento.
+- Reporta saldo inicial, saldo final, totales de abonos y cargos, intereses y comisiones solo si están impresos en este fragmento. Si no aparecen aquí, usa null; no los calcules ni los infieras.
+"""
+
+
+def get_user_prompt(
+    document_id: str,
+    model_id: str,
+    ocr_text: str,
+    page_span: Optional[Tuple[int, int]] = None,
+    total_pages: Optional[int] = None,
+) -> str:
     return f"""Extrae un estado de cuenta bancario (bank_statement) del texto OCR entre <<DOC>> y </DOC>.
 Usa la herramienta `extract_bank_statement` para devolver los datos.
-
+{_fragment_rules(page_span, total_pages)}
 Reglas de extracción:
 - Si no existe el campo, usa null.
 - amounts: número positivo con punto decimal; direction indica credit/debit.
@@ -133,7 +156,8 @@ def get_tool_config() -> Dict[str, Any]:
                                     "type": "number",
                                     "description": "Nivel de confiabilidad general de la extracción del estado de cuenta. Usar un valor de 0 a 100."
                                 }
-                            }
+                            },
+                            "required": ["overallConfidence"]
                         }
                     }
                 }
@@ -144,23 +168,33 @@ def get_tool_config() -> Dict[str, Any]:
         }
     }
 
-def invoke_bedrock_bank_statement(document_id: str, ocr_text: str, model_id: str) -> Tuple[str, Dict[str, Any]]:
+def invoke_bedrock_bank_statement(
+    document_id: str,
+    ocr_text: str,
+    model_id: str,
+    page_span: Optional[Tuple[int, int]] = None,
+    total_pages: Optional[int] = None,
+) -> Tuple[str, Dict[str, Any]]:
     """
     Invokes Amazon Bedrock Converse API with the strict Prompt and ToolConfig.
-    Returns (raw_json_string, metrics_dict)
+    Returns (raw_json_string, metrics_dict). ``metrics["stopReason"]`` carries the
+    Converse stop reason so the caller can detect output cut at maxTokens.
     """
-    
+
     system = [{"text": SYSTEM_PROMPT}]
     messages = [
         {
             "role": "user",
-            "content": [{"text": get_user_prompt(document_id, model_id, ocr_text)}]
+            "content": [{
+                "text": get_user_prompt(
+                    document_id, model_id, ocr_text, page_span, total_pages
+                )
+            }]
         }
     ]
-    
-    # High restrictiveness with increased maxTokens for statements with many transactions
-    inf_params = {"temperature": 0.0, "topP": 0.1, "maxTokens": 8000}
-    
+
+    inf_params = inference_config(model_id, MAX_OUTPUT_TOKENS)
+
     try:
         response = bedrock_client.converse(
             modelId=model_id,
@@ -189,9 +223,10 @@ def invoke_bedrock_bank_statement(document_id: str, ocr_text: str, model_id: str
             "inputTokens": usage.get("inputTokens", 0),
             "outputTokens": usage.get("outputTokens", 0),
             "totalTokens": usage.get("totalTokens", 0),
-            "latencyMs": response['metrics'].get('latencyMs', 0)
+            "latencyMs": response['metrics'].get('latencyMs', 0),
+            "stopReason": response.get("stopReason"),
         }
-        
+
         return raw_text, metrics
 
     except Exception as e:

@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Dict, Any, Tuple
 from .aws import bedrock_client
+from .model_profile import OutputTruncatedError, inference_config, output_was_truncated
 
 logger = logging.getLogger(__name__)
 
@@ -87,10 +88,8 @@ def invoke_bedrock_gov_doc(document_id: str, ocr_text: str, model_id: str) -> Tu
         }
     ]
     
-    # Optional inference parameters
-    # High restrictiveness
-    inf_params = {"temperature": 0.0, "topP": 0.1, "maxTokens": 4000}
-    
+    inf_params = inference_config(model_id, 4000)
+
     try:
         response = bedrock_client.converse(
             modelId=model_id,
@@ -98,9 +97,18 @@ def invoke_bedrock_gov_doc(document_id: str, ocr_text: str, model_id: str) -> Tu
             system=system,
             inferenceConfig=inf_params
         )
-        
+        if output_was_truncated(response):
+            raise OutputTruncatedError("Bedrock output stopped at maxTokens")
+
         output_message = response['output']['message']
-        raw_text = output_message['content'][0]['text']
+        texts = [
+            block["text"]
+            for block in output_message.get('content', [])
+            if isinstance(block, dict) and isinstance(block.get("text"), str)
+        ]
+        if not texts:
+            raise ValueError("Bedrock response has no text content")
+        raw_text = "".join(texts)
         
         usage = response.get('usage', {})
         metrics = {

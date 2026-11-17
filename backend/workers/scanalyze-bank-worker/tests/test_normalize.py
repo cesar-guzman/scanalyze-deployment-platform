@@ -12,6 +12,7 @@ def test_clean_json_string():
 
 def test_parse_and_normalize_success():
     raw_json = """{
+        "overallConfidence": 90,
         "bank": {"name": "Test Bank"},
         "account": {"holder": "John Doe", "numberMasked": "XXXX1234", "currency": "mxn"},
         "statement": {"periodStart": "2023-01-01", "periodEnd": "2023-01-31"},
@@ -57,6 +58,7 @@ def test_parse_and_normalize_string_balances_resilient():
     # With resilient normalization, string balances get reset to {}
     # This should NOT raise, because the schema is now Optional.
     raw_json = """{
+        "overallConfidence": 90,
         "bank": {"name": "Test Bank"},
         "account": {"holder": "John Doe"},
         "statement": {"periodStart": "2023-01-01", "periodEnd": "2023-01-31"},
@@ -72,6 +74,7 @@ def test_parse_and_normalize_string_balances_resilient():
 def test_parse_and_normalize_optional_fields():
     """Top-level fields bank/account/statement/balances should default to {} if missing."""
     raw_json = """{
+        "overallConfidence": 90,
         "transactions": [
             {"date": "2023-01-05", "description": "Deposit", "amount": 100.0, "direction": "credit"}
         ]
@@ -86,6 +89,7 @@ def test_parse_and_normalize_optional_fields():
 def test_parse_and_normalize_new_fields():
     """Verify accountType, bankCountry, category, fees, interest fields."""
     raw_json = """{
+        "overallConfidence": 90,
         "bank": {"name": "BBVA"},
         "account": {"holder": "Juan Pérez", "currency": "mxn"},
         "statement": {"periodStart": "01/01/2024", "periodEnd": "31/01/2024"},
@@ -132,6 +136,7 @@ def test_date_normalization():
 def test_transaction_sorting():
     """Transactions should be sorted by date ascending after normalization."""
     raw_json = """{
+        "overallConfidence": 90,
         "bank": {"name": "Test"},
         "account": {},
         "statement": {},
@@ -149,6 +154,7 @@ def test_transaction_sorting():
 def test_currency_normalization():
     """Currency should be uppercased."""
     raw_json = """{
+        "overallConfidence": 90,
         "bank": {"name": "Chase"},
         "account": {"currency": "usd", "holder": "John"},
         "statement": {},
@@ -161,6 +167,7 @@ def test_currency_normalization():
 def test_country_normalization():
     """bankCountry should be uppercased and truncated to 2 chars."""
     raw_json = """{
+        "overallConfidence": 90,
         "bank": {"name": "Chase"},
         "account": {},
         "statement": {},
@@ -283,6 +290,7 @@ def test_compute_field_confidence_period_incoherent():
 def test_parse_and_normalize_includes_confidence():
     """parse_and_normalize should always include overallConfidence and fieldConfidence."""
     raw_json = """{
+        "overallConfidence": 90,
         "bank": {"name": "BBVA"},
         "account": {"holder": "Juan", "currency": "mxn"},
         "statement": {"periodStart": "2024-01-01", "periodEnd": "2024-01-31"},
@@ -314,6 +322,7 @@ class TestClabeNormalization:
     def test_clabe_with_spaces_normalized(self):
         """CLABE with spaces should be normalized to 18 digits."""
         raw_json = """{
+            "overallConfidence": 90,
             "bank": {"name": "BBVA"},
             "account": {
                 "holder": "PERSONA TEST",
@@ -331,6 +340,7 @@ class TestClabeNormalization:
     def test_clabe_already_clean(self):
         """CLABE already 18 digits should be preserved."""
         raw_json = """{
+            "overallConfidence": 90,
             "bank": {"name": "Banorte"},
             "account": {
                 "holder": "TEST",
@@ -346,6 +356,7 @@ class TestClabeNormalization:
     def test_clabe_invalid_fallback_to_masked(self):
         """Invalid CLABE (not 18 digits) should fall back to clabeMasked."""
         raw_json = """{
+            "overallConfidence": 90,
             "bank": {"name": "HSBC"},
             "account": {
                 "holder": "TEST",
@@ -363,6 +374,7 @@ class TestClabeNormalization:
     def test_clabe_invalid_preserves_existing_masked(self):
         """Invalid CLABE should not overwrite existing clabeMasked."""
         raw_json = """{
+            "overallConfidence": 90,
             "bank": {"name": "Santander"},
             "account": {
                 "holder": "TEST",
@@ -380,6 +392,7 @@ class TestClabeNormalization:
     def test_account_number_whitespace_stripped(self):
         """Account number should have whitespace stripped."""
         raw_json = """{
+            "overallConfidence": 90,
             "bank": {"name": "BBVA"},
             "account": {
                 "holder": "TEST",
@@ -396,6 +409,7 @@ class TestClabeNormalization:
     def test_no_clabe_no_changes(self):
         """When no CLABE is present, nothing should change."""
         raw_json = """{
+            "overallConfidence": 90,
             "bank": {"name": "Banregio"},
             "account": {
                 "holder": "TEST",

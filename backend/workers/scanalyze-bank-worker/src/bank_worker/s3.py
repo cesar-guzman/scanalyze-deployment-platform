@@ -1,13 +1,15 @@
 import hashlib
 import json
 import logging
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, List, Tuple
 from botocore.exceptions import ClientError
 from .aws import s3_client
 
 logger = logging.getLogger(__name__)
 
 MAX_STRUCTURED_ARTIFACT_BYTES = 10 * 1024 * 1024
+# Form feed between pages of OCR text; Textract LINE text never contains it.
+PAGE_SEPARATOR = "\f"
 
 
 def _structured_body(data: Dict[str, Any]) -> bytes:
@@ -54,14 +56,26 @@ def get_ocr_text(bucket: str, key: str, char_limit: int = 150000) -> Tuple[str, 
         raise
 
     extracted_text = ""
-    
+    page_count = 1
+
     # Try parsing as JSON first
     try:
         data = json.loads(raw_body)
         if isinstance(data, dict) and 'blocks' in data:
-            # Textract format from ocr_worker
-            lines = [b.get('Text', '') for b in data['blocks'] if b.get('BlockType') == 'LINE']
-            extracted_text = "\n".join(lines)
+            # Textract format from ocr_worker. LINE blocks keep their page so the
+            # extractor can chunk by page; pages are joined with PAGE_SEPARATOR.
+            pages: Dict[int, List[str]] = {}
+            for block in data['blocks']:
+                if not isinstance(block, dict) or block.get('BlockType') != 'LINE':
+                    continue
+                page = block.get('Page', 1)
+                if not isinstance(page, int) or isinstance(page, bool) or page < 1:
+                    page = 1
+                pages.setdefault(page, []).append(block.get('Text', '') or '')
+            extracted_text = PAGE_SEPARATOR.join(
+                "\n".join(pages[number]) for number in sorted(pages)
+            )
+            page_count = max(len(pages), 1)
         elif isinstance(data, dict) and 'data' in data and 'text' in data['data']:
             extracted_text = data['data']['text']
         else:
@@ -77,7 +91,8 @@ def get_ocr_text(bucket: str, key: str, char_limit: int = 150000) -> Tuple[str, 
     # Leaving stats as they are expected by callers, but returning the full clean text.
     stats = {
         "chars": chars_len,
-        "truncated": False
+        "truncated": False,
+        "pages": page_count,
     }
 
     return extracted_text.strip(), stats

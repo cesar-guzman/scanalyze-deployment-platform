@@ -2,6 +2,8 @@ import json
 import logging
 import re
 import uuid
+from dataclasses import dataclass
+from typing import Any, Dict, List, Tuple
 from botocore.exceptions import ClientError
 from pydantic import ValidationError
 
@@ -21,7 +23,9 @@ from ..dynamo import (
     update_document_status,
 )
 from ..bedrock import invoke_bedrock_bank_statement, PROMPT_VERSION
-from ..normalize import parse_and_normalize
+from ..merge import merge_chunk_results
+from ..model_profile import TRUNCATED_STOP_REASON, OutputTruncatedError
+from ..normalize import compute_field_confidence, parse_and_normalize
 
 def chunk_text(text: str, chunk_size: int = 120000):
     """
@@ -61,8 +65,160 @@ def chunk_text(text: str, chunk_size: int = 120000):
         
     if current_chunk:
         chunks.append("\n".join(current_chunk))
-        
+
     return chunks
+
+
+PAGE_SEPARATOR = "\f"
+# Pages per Bedrock call. Small chunks keep each tool response far below the
+# output cap, and a chunk that fails is retried page by page.
+PAGES_PER_CHUNK = 3
+MAX_CHUNK_CHARS = 40000
+ATTEMPTS_PER_CHUNK = 2
+
+
+class ExtractionIncompleteError(RuntimeError):
+    """A page range could not be extracted. No partial statement is written."""
+
+
+@dataclass(frozen=True)
+class PageChunk:
+    first: int
+    last: int
+    pages: Tuple[Tuple[int, str], ...]
+
+    @property
+    def text(self) -> str:
+        if len(self.pages) == 1:
+            return self.pages[0][1]
+        return "\n".join(f"--- Página {number} ---\n{text}" for number, text in self.pages)
+
+    def single_pages(self) -> List["PageChunk"]:
+        if len(self.pages) < 2:
+            return []
+        return [PageChunk(number, number, ((number, text),)) for number, text in self.pages]
+
+
+def split_pages(ocr_text: str) -> List[Tuple[int, str]]:
+    """Number the pages of OCR text joined with PAGE_SEPARATOR, skipping blank ones."""
+    pages = [
+        (number, text.strip())
+        for number, text in enumerate(ocr_text.split(PAGE_SEPARATOR), start=1)
+    ]
+    return [(number, text) for number, text in pages if text] or [(1, "")]
+
+
+def build_page_chunks(
+    pages: List[Tuple[int, str]],
+    pages_per_chunk: int = PAGES_PER_CHUNK,
+    max_chars: int = MAX_CHUNK_CHARS,
+) -> List[PageChunk]:
+    """Group consecutive pages; a page longer than max_chars is split by lines."""
+    chunks: List[PageChunk] = []
+    current: List[Tuple[int, str]] = []
+    size = 0
+    for number, text in pages:
+        if len(text) > max_chars:
+            if current:
+                chunks.append(PageChunk(current[0][0], current[-1][0], tuple(current)))
+                current, size = [], 0
+            for part in chunk_text(text, max_chars):
+                chunks.append(PageChunk(number, number, ((number, part),)))
+            continue
+        if current and (len(current) >= pages_per_chunk or size + len(text) > max_chars):
+            chunks.append(PageChunk(current[0][0], current[-1][0], tuple(current)))
+            current, size = [], 0
+        current.append((number, text))
+        size += len(text)
+    if current:
+        chunks.append(PageChunk(current[0][0], current[-1][0], tuple(current)))
+    return chunks
+
+
+def _extract_chunk(
+    chunk: PageChunk,
+    *,
+    document_id: str,
+    model_id: str,
+    total_pages: int,
+    ocr_char_count: int,
+    usage: Dict[str, int],
+    counters: Dict[str, int],
+) -> List[Dict[str, Any]]:
+    """Extract one chunk. A chunk that fails is retried once, then page by page;
+    a single page that still fails raises instead of being skipped."""
+    error: Exception = ExtractionIncompleteError("no attempt was made")
+    for attempt in range(1, ATTEMPTS_PER_CHUNK + 1):
+        try:
+            raw_json, metrics = invoke_bedrock_bank_statement(
+                document_id, chunk.text, model_id, (chunk.first, chunk.last), total_pages
+            )
+        except Exception as e:
+            logger.error(
+                "Bedrock invocation failed for chunk",
+                extra={"firstPage": chunk.first, "lastPage": chunk.last, "errorType": type(e).__name__},
+            )
+            raise
+        for key in usage:
+            usage[key] += metrics.get(key, 0)
+        if metrics.get("stopReason") == TRUNCATED_STOP_REASON:
+            counters["truncatedOutputs"] += 1
+            log_event(
+                "bedrock_output_truncated",
+                documentId=document_id,
+                firstPage=chunk.first,
+                lastPage=chunk.last,
+            )
+            error = OutputTruncatedError("Bedrock output stopped at maxTokens")
+            break  # the same input would be cut again
+        try:
+            return [
+                parse_and_normalize(
+                    raw_json, document_id, PROMPT_VERSION, model_id,
+                    ocr_char_count=ocr_char_count,
+                )
+            ]
+        except ValueError as ve:
+            counters["schemaViolations"] += 1
+            error = ve
+            log_event(
+                "bedrock_schema_violation",
+                documentId=document_id,
+                firstPage=chunk.first,
+                lastPage=chunk.last,
+                attempt=attempt,
+                **safe_error_details(ve),
+            )
+
+    singles = chunk.single_pages()
+    if singles:
+        counters["pageSplits"] += 1
+        results: List[Dict[str, Any]] = []
+        for single in singles:
+            results.extend(
+                _extract_chunk(
+                    single,
+                    document_id=document_id,
+                    model_id=model_id,
+                    total_pages=total_pages,
+                    ocr_char_count=ocr_char_count,
+                    usage=usage,
+                    counters=counters,
+                )
+            )
+        return results
+
+    log_event(
+        "extract_incomplete",
+        documentId=document_id,
+        firstPage=chunk.first,
+        lastPage=chunk.last,
+        **safe_error_details(error),
+    )
+    raise ExtractionIncompleteError(
+        f"Pages {chunk.first}-{chunk.last} could not be extracted"
+    ) from error
+
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +358,7 @@ def process_bank_extract_message(body: str, receipt_handle: str, queue_url: str)
         structured_bucket = config.get("data-foundation/structured_bucket_name")
         dynamo_table = config.get("data-foundation/documents_table_name")
         validate_queue_url = config.get("queues/validate_url")
-        model_id = config.get("BEDROCK_MODEL_ID", default="anthropic.claude-3-haiku-20240307-v1:0")
+        model_id = config.get("BEDROCK_MODEL_ID", default="us.anthropic.claude-haiku-4-5-20251001-v1:0")
 
         structured_key = (
             f"customers/{msg.customer_id}/deployments/{msg.deployment_id}/"
@@ -345,83 +501,53 @@ def process_bank_extract_message(body: str, receipt_handle: str, queue_url: str)
             log_event("extract_partial_commit_recovered", documentId=msg.documentId)
         elif document_status == WRITING_STATUS:
             ocr_text, text_stats = get_ocr_text(ocr_bucket, ocr_key)
-            chunks = chunk_text(ocr_text, 120000) or [""]
-            
-            logger.info(f"Splitting OCR text into {len(chunks)} chunks")
-            log_event("ocr_chunked", documentId=msg.documentId, chunkCount=len(chunks), charCount=len(ocr_text))
+            pages = split_pages(ocr_text)
+            chunks = build_page_chunks(pages)
+            log_event(
+                "ocr_chunked",
+                documentId=msg.documentId,
+                chunkCount=len(chunks),
+                pageCount=len(pages),
+                charCount=len(ocr_text),
+            )
 
-            final_dict = None
             total_metrics = {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "latencyMs": 0}
-            
-            for i, chunk in enumerate(chunks):
-                logger.info(f"Invoking Bedrock for chunk {i+1}/{len(chunks)}")
-                try:
-                    raw_json, metrics = invoke_bedrock_bank_statement(msg.documentId, chunk, model_id)
-                except Exception as e:
-                    logger.error(
-                        "Bedrock invocation failed for chunk",
-                        extra={"chunk": i + 1, "errorType": type(e).__name__},
-                    )
-                    raise
-                
-                for k in total_metrics:
-                    total_metrics[k] += metrics.get(k, 0)
-                
-                logger.info(f"Validating schemas for chunk {i+1}/{len(chunks)}")
-                try:
-                    chunk_dict = parse_and_normalize(raw_json, msg.documentId, PROMPT_VERSION, model_id, ocr_char_count=len(ocr_text))
-                except ValueError as ve:
-                    log_event(
-                        "bedrock_schema_violation",
-                        documentId=msg.documentId,
-                        chunk=i + 1,
-                        **safe_error_details(ve),
-                    )
-                    continue
-                
-                logger.info(f"Chunk {i+1} extracted {len(chunk_dict.get('transactions', []))} transactions")
-                log_event("chunk_extracted", documentId=msg.documentId, chunk=i+1, txnCount=len(chunk_dict.get('transactions', [])))
+            counters = {"truncatedOutputs": 0, "schemaViolations": 0, "pageSplits": 0}
+            chunk_results: List[Dict[str, Any]] = []
+            for chunk in chunks:
+                extracted = _extract_chunk(
+                    chunk,
+                    document_id=msg.documentId,
+                    model_id=model_id,
+                    total_pages=len(pages),
+                    ocr_char_count=len(ocr_text),
+                    usage=total_metrics,
+                    counters=counters,
+                )
+                chunk_results.extend(extracted)
+                log_event(
+                    "chunk_extracted",
+                    documentId=msg.documentId,
+                    firstPage=chunk.first,
+                    lastPage=chunk.last,
+                    txnCount=sum(len(item.get("transactions") or []) for item in extracted),
+                )
 
-                if final_dict is None:
-                    final_dict = chunk_dict
-                else:
-                    # Merge logic
-                    # 1. Transactions — append from subsequent chunks
-                    final_dict.setdefault("transactions", []).extend(chunk_dict.get("transactions", []))
-                    
-                    # 2. Top-level dict objects — fill nulls from later chunks
-                    for key in ["bank", "account", "statement", "balances"]:
-                        if key in chunk_dict and isinstance(chunk_dict[key], dict):
-                            final_dict.setdefault(key, {})
-                            for sub_k, sub_v in chunk_dict[key].items():
-                                if final_dict[key].get(sub_k) is None and sub_v is not None:
-                                    final_dict[key][sub_k] = sub_v
-
-                    # 3. Scalar fields — take first non-null
-                    for scalar_key in ["accountType", "bankCountry", "summaryText"]:
-                        if final_dict.get(scalar_key) is None and chunk_dict.get(scalar_key) is not None:
-                            final_dict[scalar_key] = chunk_dict[scalar_key]
-
-                    # 4. Numeric fields — sum across chunks
-                    for num_key in ["interestEarned", "interestCharged"]:
-                        chunk_val = chunk_dict.get(num_key)
-                        if chunk_val is not None:
-                            final_dict[num_key] = (final_dict.get(num_key) or 0) + chunk_val
-
-                    # 5. Fees object — sum sub-fields
-                    chunk_fees = chunk_dict.get("fees")
-                    if chunk_fees and isinstance(chunk_fees, dict):
-                        final_dict.setdefault("fees", {})
-                        for fee_key in ["totalFees", "ivaOnFees"]:
-                            if chunk_fees.get(fee_key) is not None:
-                                final_dict["fees"][fee_key] = (final_dict["fees"].get(fee_key) or 0) + chunk_fees[fee_key]
-            
-            if final_dict is None:
-                log_event("extract_failed_all_chunks", documentId=msg.documentId)
-                raise ValueError("Bank extraction result failed schema validation")
+            # Every page is covered; merge, then judge the whole statement once.
+            final_dict, recon_issues, notes, chunk_confidence = merge_chunk_results(chunk_results)
+            for note in notes:
+                log_event("bank_pages_disagree", documentId=msg.documentId, field=note)
+            if chunk_confidence is not None:
+                field_confidence, adjusted_confidence = compute_field_confidence(
+                    {**final_dict, "modelConfidence": chunk_confidence},
+                    ocr_char_count=len(ocr_text),
+                    extra_issues=recon_issues,
+                )
+                final_dict["fieldConfidence"] = field_confidence.model_dump(exclude_none=False)
+                final_dict["overallConfidence"] = adjusted_confidence
 
             # Update metric models dynamically
-            final_dict["model"]["usage"] = total_metrics
+            final_dict.setdefault("model", {})["usage"] = total_metrics
 
             # Sort all transactions by date for consistent ordering
             txns = final_dict.get("transactions", [])
@@ -476,6 +602,11 @@ def process_bank_extract_message(body: str, receipt_handle: str, queue_url: str)
                     "metrics": total_metrics,
                     "attempt": msg.attempt,
                     "textStats": text_stats,
+                    "extraction": {
+                        "pages": len(pages),
+                        "chunks": len(chunks),
+                        **counters,
+                    },
                 },
                 checkpoint_id=checkpoint_id,
                 content_sha256=content_sha256,

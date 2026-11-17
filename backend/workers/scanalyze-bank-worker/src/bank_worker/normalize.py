@@ -1,8 +1,10 @@
 import json
 import logging
+import math
 import re
 import json_repair
-from typing import Dict, Any, Tuple
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from typing import Dict, Any, List, Optional, Sequence, Tuple
 from datetime import datetime, timezone
 from .contracts import BankStatementSchema, BankFieldConfidence, FieldValidation
 from .logger import log_event, safe_error_details
@@ -63,20 +65,146 @@ def normalize_date(date_str: str) -> str:
     return date_str
 
 
-def _safe_float(val) -> float:
-    """Safely cast a value to float, returning 0.0 on failure."""
-    if val is None:
-        return 0.0
+CENT = Decimal("0.01")
+# Amounts are rounded half-up to the cent before any sum. A reconciliation passes
+# when the remaining difference is at most one cent.
+RECONCILIATION_TOLERANCE = Decimal("0.01")
+MAX_ISSUE_LENGTH = 500
+
+_PLAIN_AMOUNT = re.compile(r"^-?\d+(\.\d+)?$")
+_THOUSANDS_AMOUNT = re.compile(r"^-?\d{1,3}(,\d{3})+(\.\d+)?$")
+_CURRENCY_MARKS = re.compile(r"(?i)\$|\b(mxn|mxp|usd|eur)\b")
+
+
+def parse_amount(value: Any) -> Optional[Decimal]:
+    """Parse an extracted amount. Returns None when absent; raises ValueError when unusable."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("amount is a boolean")
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError("amount is not finite")
+        return Decimal(str(value))
+    if isinstance(value, str):
+        text = _CURRENCY_MARKS.sub("", value).strip().replace(" ", "")
+        if text == "":
+            return None
+        if _THOUSANDS_AMOUNT.match(text):
+            text = text.replace(",", "")
+        if not _PLAIN_AMOUNT.match(text):
+            raise ValueError("amount text is not a number")
+        return Decimal(text)
+    raise ValueError("amount has an unsupported type")
+
+
+def to_cents(value: Any) -> Optional[Decimal]:
+    """Amount rounded half-up to the cent, or None when absent or unusable."""
     try:
-        return float(val)
-    except (ValueError, TypeError):
-        return 0.0
+        amount = parse_amount(value)
+    except (ValueError, InvalidOperation):
+        return None
+    if amount is None:
+        return None
+    return amount.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
-def compute_field_confidence(data: Dict[str, Any], ocr_char_count: int = 0) -> Tuple[BankFieldConfidence, float]:
+def _normalize_amount(value: Any, label: str, issues: List[str]) -> Optional[float]:
+    try:
+        amount = parse_amount(value)
+    except (ValueError, InvalidOperation):
+        issues.append(f"unparseable amount in {label}")
+        return None
+    return None if amount is None else float(amount)
+
+
+def model_confidence(value: Any) -> float:
+    """The model's self-reported 0-100 confidence. There is no default."""
+    if isinstance(value, bool) or value is None:
+        raise ValueError("Model did not report overallConfidence")
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        raise ValueError("Model reported a non-numeric overallConfidence") from None
+    if not math.isfinite(confidence) or not 0.0 <= confidence <= 100.0:
+        raise ValueError("Model reported overallConfidence outside 0-100")
+    return confidence
+
+
+def _bounded_issue(parts: Sequence[str]) -> Optional[str]:
+    text = "; ".join(part for part in parts if part)
+    if not text:
+        return None
+    return text if len(text) <= MAX_ISSUE_LENGTH else text[: MAX_ISSUE_LENGTH - 3] + "..."
+
+
+def reconcile_balances(
+    balances: Dict[str, Any],
+    transactions: Sequence[Dict[str, Any]],
+    extra_issues: Sequence[str] = (),
+) -> Tuple[Optional[bool], Optional[str]]:
+    """Reconcile to the cent: opening + credits - debits = closing.
+
+    Checks the transaction sums and, when the statement reports them, the printed
+    totals and their agreement with the transactions. Returns (valid, issue);
+    valid is None when the opening or closing balance is missing.
+    """
+    opening = to_cents(balances.get("opening"))
+    closing = to_cents(balances.get("closing"))
+    if opening is None or closing is None:
+        return None, _bounded_issue(["opening or closing balance missing", *extra_issues])
+
+    failures: List[str] = list(extra_issues)
+    credits = Decimal("0.00")
+    debits = Decimal("0.00")
+    unusable = 0
+    for transaction in transactions:
+        amount = to_cents(transaction.get("amount"))
+        if amount is None:
+            unusable += 1
+        elif transaction.get("direction") == "credit":
+            credits += amount
+        elif transaction.get("direction") == "debit":
+            debits += amount
+    if unusable:
+        failures.append(f"{unusable} transactions without a usable amount")
+    else:
+        implied = opening + credits - debits
+        if abs(implied - closing) > RECONCILIATION_TOLERANCE:
+            failures.append(
+                f"opening({opening})+credits({credits})-debits({debits})={implied}, closing={closing}"
+            )
+
+    total_credits = to_cents(balances.get("totalCredits"))
+    total_debits = to_cents(balances.get("totalDebits"))
+    if total_credits is not None and total_debits is not None:
+        implied_totals = opening + total_credits - total_debits
+        if abs(implied_totals - closing) > RECONCILIATION_TOLERANCE:
+            failures.append(
+                f"reported totals: opening({opening})+credits({total_credits})"
+                f"-debits({total_debits})={implied_totals}, closing={closing}"
+            )
+    if not unusable:
+        if total_credits is not None and abs(credits - total_credits) > RECONCILIATION_TOLERANCE:
+            failures.append(f"credits sum {credits} differs from reported totalCredits {total_credits}")
+        if total_debits is not None and abs(debits - total_debits) > RECONCILIATION_TOLERANCE:
+            failures.append(f"debits sum {debits} differs from reported totalDebits {total_debits}")
+
+    return (not failures), _bounded_issue(failures)
+
+
+def compute_field_confidence(
+    data: Dict[str, Any],
+    ocr_char_count: int = 0,
+    extra_issues: Sequence[str] = (),
+) -> Tuple[BankFieldConfidence, float]:
     """
     Computes real per-field confidence and an adjusted overallConfidence
     based on actual validation results, not the LLM's self-assessment.
+
+    The model's own confidence is the starting point and is required: a missing
+    value raises ValueError instead of assuming one. ``extra_issues`` (parse
+    errors, conflicting balances across pages) invalidate the reconciliation.
     """
     bank = data.get('bank', {}) or {}
     account = data.get('account', {}) or {}
@@ -84,7 +212,10 @@ def compute_field_confidence(data: Dict[str, Any], ocr_char_count: int = 0) -> T
     balances = data.get('balances', {}) or {}
     transactions = data.get('transactions', []) or []
 
-    llm_confidence = data.get('overallConfidence', 95.0) or 95.0
+    if data.get('modelConfidence') is not None:
+        llm_confidence = model_confidence(data['modelConfidence'])
+    else:
+        llm_confidence = model_confidence(data.get('overallConfidence'))
 
     # --- Bank name validation ---
     bank_name = bank.get('name')
@@ -110,51 +241,21 @@ def compute_field_confidence(data: Dict[str, Any], ocr_char_count: int = 0) -> T
         issue=None if holder_present else "missing"
     )
 
-    # --- Balance reconciliation ---
-    opening_raw = balances.get('opening')
-    closing_raw = balances.get('closing')
-    total_credits = balances.get('totalCredits')
-    total_debits = balances.get('totalDebits')
-
-    opening = _safe_float(opening_raw) if opening_raw is not None else None
-    closing = _safe_float(closing_raw) if closing_raw is not None else None
-
-    recon_valid = None
-    recon_score = 50.0  # Neutral if we can't check
-    recon_issue = None
-
-    if opening is not None and closing is not None:
-        # Try reconciliation with reported totals first
-        if total_credits is not None and total_debits is not None:
-            tc = _safe_float(total_credits)
-            td = _safe_float(total_debits)
-            calculated_closing = opening + tc - td
-            diff = abs(calculated_closing - closing)
-            tolerance = max(abs(closing) * 0.01, 0.50)  # 1% or $0.50
-            recon_valid = diff <= tolerance
-            recon_score = 95.0 if recon_valid else 20.0
-            if not recon_valid:
-                recon_issue = f"opening({opening})+credits({tc})-debits({td})={calculated_closing:.2f}, closing={closing}, diff={diff:.2f}"
-        else:
-            # Fallback: reconcile with individual transactions
-            sum_credits = sum(_safe_float(t.get('amount')) for t in transactions if t.get('direction') == 'credit' and t.get('amount') is not None)
-            sum_debits = sum(_safe_float(t.get('amount')) for t in transactions if t.get('direction') == 'debit' and t.get('amount') is not None)
-            if sum_credits > 0 or sum_debits > 0:
-                calculated_closing = opening + sum_credits - sum_debits
-                diff = abs(calculated_closing - closing)
-                tolerance = max(abs(closing) * 0.02, 1.0)  # 2% or $1.00 (transactions may be incomplete)
-                recon_valid = diff <= tolerance
-                recon_score = 90.0 if recon_valid else 30.0
-                if not recon_valid:
-                    recon_issue = f"txn_recon: opening({opening})+cr({sum_credits:.2f})-dr({sum_debits:.2f})={calculated_closing:.2f}, closing={closing}, diff={diff:.2f}"
-    else:
-        recon_issue = "opening or closing balance missing"
+    # --- Balance reconciliation, to the cent ---
+    balances_present = (
+        to_cents(balances.get('opening')) is not None
+        and to_cents(balances.get('closing')) is not None
+    )
+    recon_valid, recon_issue = reconcile_balances(balances, transactions, extra_issues)
+    if recon_valid is None:
         recon_score = 30.0
+    else:
+        recon_score = 95.0 if recon_valid else 20.0
 
     recon_validation = FieldValidation(
-        present=opening is not None and closing is not None,
+        present=balances_present,
         valid=recon_valid,
-        score=max(recon_score, 0.0),
+        score=recon_score,
         issue=recon_issue
     )
 
@@ -216,7 +317,7 @@ def compute_field_confidence(data: Dict[str, Any], ocr_char_count: int = 0) -> T
 
     if recon_valid is False:
         adjusted -= 25.0
-    elif opening is None or closing is None:
+    elif not balances_present:
         adjusted -= 10.0
 
     if not txn_present:
@@ -281,7 +382,17 @@ def parse_and_normalize(raw_json: str, document_id: str, prompt_version: str, mo
             **safe_error_details(e),
         )
         raise ValueError("Bedrock returned invalid JSON dictionary") from None
-        
+
+    try:
+        reported_confidence = model_confidence(data.get("overallConfidence"))
+    except ValueError as e:
+        log_event(
+            "bedrock_confidence_missing",
+            documentId=document_id,
+            **safe_error_details(e),
+        )
+        raise
+
     # Enforce static schema requirements
     data["schema_version"] = "1.0"
     data["prompt_version"] = prompt_version
@@ -358,8 +469,36 @@ def parse_and_normalize(raw_json: str, document_id: str, prompt_version: str, mo
     valid_txns.sort(key=sort_key)
     data["transactions"] = valid_txns
 
+    # Amounts become floats, or None with an explicit issue; never a silent 0.0.
+    # Unusable balances or transaction amounts invalidate the reconciliation;
+    # unusable fee or interest amounts are only logged.
+    issues: List[str] = []
+    notes: List[str] = []
+    balances = data["balances"]
+    for key in list(balances.keys()):
+        balances[key] = _normalize_amount(balances.get(key), f"balances.{key}", issues)
+    for index, transaction in enumerate(valid_txns):
+        for key in ("amount", "balanceAfter"):
+            if key in transaction:
+                transaction[key] = _normalize_amount(
+                    transaction.get(key), f"transactions[{index}].{key}", issues
+                )
+    if isinstance(data.get("fees"), dict):
+        fees = data["fees"]
+        for key in list(fees.keys()):
+            fees[key] = _normalize_amount(fees.get(key), f"fees.{key}", notes)
+    for key in ("interestEarned", "interestCharged"):
+        if key in data:
+            data[key] = _normalize_amount(data.get(key), key, notes)
+    for note in notes:
+        log_event("bank_amount_unparseable", documentId=document_id, field=note)
+    data["modelConfidence"] = reported_confidence
+    data["extractionIssues"] = issues
+
     # Compute field-level confidence and adjusted overall confidence
-    field_confidence, adjusted_confidence = compute_field_confidence(data, ocr_char_count)
+    field_confidence, adjusted_confidence = compute_field_confidence(
+        data, ocr_char_count, extra_issues=issues
+    )
     data["fieldConfidence"] = field_confidence.model_dump(exclude_none=False)
     data["overallConfidence"] = adjusted_confidence
 

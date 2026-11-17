@@ -1,6 +1,6 @@
 # Scanalyze Personal Worker
 
-Microservicio (ECS/Fargate) diseñado para consumir mensajes de Amazon SQS, recuperar artifacts de OCR correspondientes desde S3 (producidos previamente en el pipeline), e invocar Amazon Bedrock utilizando Claude 3 Haiku para extraer y estructurar el texto original estrictamente en formato JSON adherido al esquema `personal_doc` (INE, Pasaportes, Licencias Mexicanas).
+Microservicio (ECS/Fargate) diseñado para consumir mensajes de Amazon SQS, recuperar artifacts de OCR correspondientes desde S3 (producidos previamente en el pipeline), e invocar Amazon Bedrock utilizando Claude Haiku 4.5 para extraer y estructurar el texto original estrictamente en formato JSON adherido al esquema `personal_doc` (INE, Pasaportes, Licencias Mexicanas).
 
 Al finalizar, sube el esquema resultante a S3, actualiza el estado en DynamoDB y redirige el flujo mediante un mensaje de validación de SQS hacia el siguiente paso en la etapa (`validate worker`).
 
@@ -21,7 +21,7 @@ Usa un perfil AWS no productivo aprobado y autenticado mediante SSO.
 export SCANALYZE_ENV="<ENVIRONMENT>"
 export SCANALYZE_TENANT="personal"
 export AWS_REGION="<AWS_REGION>"
-export BEDROCK_MODEL_ID="anthropic.claude-3-haiku-20240307-v1:0"
+export BEDROCK_MODEL_ID="us.anthropic.claude-haiku-4-5-20251001-v1:0"
 export LOG_LEVEL="INFO"
 ```
 

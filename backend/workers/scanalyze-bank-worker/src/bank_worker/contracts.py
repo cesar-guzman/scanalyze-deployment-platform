@@ -110,3 +110,7 @@ class BankStatementSchema(BaseModel):
     summaryText: Optional[str] = None
     overallConfidence: Optional[float] = None
     fieldConfidence: Optional[BankFieldConfidence] = None
+    # Per-chunk working fields for the multi-page merge. The extractor removes
+    # them before writing the artifact, whose closed contract does not allow them.
+    modelConfidence: Optional[float] = None
+    extractionIssues: Optional[List[str]] = None

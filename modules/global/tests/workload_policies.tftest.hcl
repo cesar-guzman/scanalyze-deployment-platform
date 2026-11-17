@@ -93,7 +93,10 @@ run "bedrock_is_granted_only_to_model_workers_and_only_for_approved_models" {
       toset(one([
         for statement in jsondecode(aws_iam_role_policy.workload[service].policy).Statement :
         statement.Resource if statement.Sid == "InvokeApprovedBedrockModels"
-      ])) == toset(["arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"])
+      ])) == toset([
+        "arn:aws:bedrock:us-east-1:000000000000:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
+      ])
     ])
     error_message = "the extractors may invoke only the approved extractor model"
   }
@@ -117,7 +120,8 @@ run "boundary_allows_bedrock_and_textract_only_as_needed" {
       statement.Resource if statement.Sid == "AllowApprovedBedrockModels"
       ])) == toset([
       "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-lite-v1:0",
-      "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
+      "arn:aws:bedrock:us-east-1:000000000000:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
     ])
     error_message = "the boundary must allow bedrock:InvokeModel only on the approved model ARNs"
   }

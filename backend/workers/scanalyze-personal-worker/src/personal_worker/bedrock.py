@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Dict, Any, Optional, Tuple, List
 from .aws import bedrock_client
+from .model_profile import OutputTruncatedError, inference_config, output_was_truncated
 
 logger = logging.getLogger(__name__)
 
@@ -261,10 +262,8 @@ def invoke_bedrock_personal_doc(
         }
     ]
     
-    # Optional inference parameters
-    # High restrictiveness
-    inf_params = {"temperature": 0.0, "topP": 0.1, "maxTokens": 4000}
-    
+    inf_params = inference_config(model_id, 4000)
+
     try:
         response = bedrock_client.converse(
             modelId=model_id,
@@ -273,7 +272,9 @@ def invoke_bedrock_personal_doc(
             inferenceConfig=inf_params,
             toolConfig=get_tool_config()
         )
-        
+        if output_was_truncated(response):
+            raise OutputTruncatedError("Bedrock output stopped at maxTokens")
+
         output_message = response['output']['message']
         raw_text = "{}"
         

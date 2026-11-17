@@ -171,7 +171,7 @@ def process_personal_extract_message(body: str, receipt_handle: str, queue_url: 
         structured_bucket = config.get("data-foundation/structured_bucket_name")
         dynamo_table = config.get("data-foundation/documents_table_name")
         validate_queue_url = config.get("queues/validate_url")
-        model_id = config.get("BEDROCK_MODEL_ID", default="anthropic.claude-3-haiku-20240307-v1:0")
+        model_id = config.get("BEDROCK_MODEL_ID", default="us.anthropic.claude-haiku-4-5-20251001-v1:0")
 
         structured_key = (
             f"customers/{msg.customer_id}/deployments/{msg.deployment_id}/"

@@ -345,8 +345,9 @@ def test_platform_worker_accepts_valid_bank_route_and_records_pass():
             "documentId": "doc-123",
             "docType": "bank_statement",
             "schema_version": "1.0",
-            "balances": {},
-            "transactions": [],
+            # A reconciled statement: an empty one no longer passes (GUG-542).
+            "balances": {"opening": 100.0, "closing": 150.0},
+            "transactions": [{"amount": 50.0, "direction": "credit"}],
         }
     ).encode("utf-8")
     with (
