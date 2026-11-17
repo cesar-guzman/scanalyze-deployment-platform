@@ -19,7 +19,7 @@ output "contract_payload" {
     outputs = {
       dashboard_name   = aws_cloudwatch_dashboard.main.dashboard_name
       alerts_topic_arn = aws_sns_topic.alerts.arn
-      log_group_names  = { for key, group in aws_cloudwatch_log_group.service : key => group.name }
+      log_group_names  = local.service_log_group_names
     }
   }
 }

@@ -78,16 +78,9 @@ resource "aws_cloudwatch_metric_alarm" "service_cpu" {
   }
 }
 
-resource "aws_cloudwatch_log_group" "service" {
-  for_each = toset(var.service_names)
-
-  name              = "/ecs/${var.deployment_id}/${each.key}"
-  retention_in_days = 90
-
-  tags = {
-    deployment_id = var.deployment_id
-    managed_by    = "terraform"
-    layer         = "addons"
-    service       = each.key
-  }
+# Service log groups are owned and created by the services layer
+# (modules/services/logs.tf, GUG-108), before the first task starts. This
+# layer only publishes their deterministic names in its contract.
+locals {
+  service_log_group_names = { for service in var.service_names : service => "/ecs/${var.deployment_id}/${service}" }
 }

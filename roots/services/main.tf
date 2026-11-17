@@ -29,6 +29,9 @@ module "services" {
   alb_service_routes          = var.alb_service_routes
   service_definitions         = var.service_definitions
 
+  # GUG-108: data-foundation outputs injected as runtime configuration.
+  runtime_wiring = var.runtime_wiring
+
   identity_control_plane_contract                 = var.identity_control_plane_contract
   expected_identity_control_plane_contract_digest = var.expected_identity_control_plane_contract_digest
 
