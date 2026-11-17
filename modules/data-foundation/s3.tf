@@ -58,3 +58,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "documents" {
     }
   }
 }
+
+# GUG-543: the frontend uploads with a presigned PUT (signed Content-Type
+# header) and downloads with a presigned GET through fetch(). Browsers need a
+# CORS rule for both. Requests are still authorized by their S3 signature.
+resource "aws_s3_bucket_cors_configuration" "documents" {
+  count = length(var.browser_origins) > 0 ? 1 : 0
+
+  bucket = aws_s3_bucket.documents.id
+
+  cors_rule {
+    allowed_origins = var.browser_origins
+    allowed_methods = ["GET", "PUT"]
+    allowed_headers = ["content-type"]
+    max_age_seconds = 3000
+  }
+}
