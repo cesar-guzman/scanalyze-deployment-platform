@@ -62,6 +62,43 @@ variable "service_names" {
   ]
 }
 
+variable "bedrock_classifier_model_ids" {
+  type        = list(string)
+  description = "Bedrock model or inference-profile IDs the classifier worker may invoke (GUG-541). The default matches classifier_worker/classifier.py."
+  default     = ["amazon.nova-lite-v1:0"]
+
+  validation {
+    condition = length(var.bedrock_classifier_model_ids) > 0 && alltrue([
+      for model_id in var.bedrock_classifier_model_ids : can(regex("^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?$", model_id))
+    ])
+    error_message = "bedrock_classifier_model_ids must list exact model or inference-profile IDs, without wildcards."
+  }
+}
+
+variable "bedrock_extractor_model_ids" {
+  type        = list(string)
+  description = "Bedrock model or inference-profile IDs the bank, personal and gov workers may invoke (GUG-541). The default matches their processors/extract.py."
+  default     = ["anthropic.claude-3-haiku-20240307-v1:0"]
+
+  validation {
+    condition = length(var.bedrock_extractor_model_ids) > 0 && alltrue([
+      for model_id in var.bedrock_extractor_model_ids : can(regex("^[a-z0-9]+([.-][a-z0-9]+)*(:[0-9]+)?$", model_id))
+    ])
+    error_message = "bedrock_extractor_model_ids must list exact model or inference-profile IDs, without wildcards."
+  }
+}
+
+variable "runtime_parameter_path_prefix" {
+  type        = string
+  description = "SSM path prefix the workloads read runtime configuration from (GUG-541). Workers read /scanalyze/{env}/tenants/{tenant} recursively."
+  default     = "/scanalyze"
+
+  validation {
+    condition     = can(regex("^/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$", var.runtime_parameter_path_prefix))
+    error_message = "runtime_parameter_path_prefix must be an absolute SSM path without a trailing slash or wildcards."
+  }
+}
+
 variable "ecs_task_execution_managed_policies" {
   type        = list(string)
   description = "Explicit managed policy ARNs for the ECS execution role; empty selects the partition-correct AWS managed policy."
