@@ -83,17 +83,18 @@ resource "terraform_data" "contract_gate" {
     precondition {
       condition = (
         var.identity_contract.resource_server_identifier == "scanalyze.api.v1" &&
-        var.identity_contract.allowed_token_uses == ["access"] &&
-        var.identity_contract.action_scopes == {
+        # Compare by value: typed lists and maps never equal tuple or object literals.
+        jsonencode(var.identity_contract.allowed_token_uses) == jsonencode(["access"]) &&
+        jsonencode(var.identity_contract.action_scopes) == jsonencode({
           read  = "scanalyze.api.v1/read"
           write = "scanalyze.api.v1/write"
           admin = "scanalyze.api.v1/admin"
-        } &&
-        var.identity_contract.action_scope_sets == {
+        }) &&
+        jsonencode(var.identity_contract.action_scope_sets) == jsonencode({
           read  = ["scanalyze.api.v1/read"]
           write = ["scanalyze.api.v1/write"]
           admin = ["scanalyze.api.v1/admin"]
-        }
+        })
       )
       error_message = "identity-control-plane/v1 must publish the exact access-token-only canonical scope catalog."
     }
@@ -119,9 +120,11 @@ resource "terraform_data" "contract_gate" {
     precondition {
       condition = (
         length(distinct(var.identity_contract.m2m_client_ids)) == length(var.identity_contract.m2m_client_ids) &&
-        toset(var.identity_contract.m2m_client_ids) == toset([
+        # Sorted JSON comparison also holds when there are no M2M clients yet; an
+        # empty toset() of a typed list never equals one built from an empty tuple.
+        jsonencode(sort(var.identity_contract.m2m_client_ids)) == jsonencode(sort([
           for binding in var.identity_contract.m2m_bindings : binding.client_id
-        ]) &&
+        ])) &&
         length(distinct([
           for binding in var.identity_contract.m2m_bindings : binding.client_id
         ])) == length(var.identity_contract.m2m_bindings) &&
