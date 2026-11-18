@@ -12,9 +12,9 @@
       "image": "{account_id}.dkr.ecr.{region}.amazonaws.com/{deployment_id}/scanalyze/ingest-api@{digest}",
       "cpu": 512,
       "memory": 1024,
-      "port": 8080,
+      "port": 80,
       "desired_count": 3,
-      "health_check_path": "/api/v2/health",
+      "health_check_path": "/health",
       "extra_environment": [
         { "name": "GUNICORN_WORKERS", "value": "4" }
       ]

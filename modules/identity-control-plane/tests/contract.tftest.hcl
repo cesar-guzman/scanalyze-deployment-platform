@@ -198,3 +198,43 @@ run "rejects_domain_names_over_253_characters" {
 
   expect_failures = [var.domain_name]
 }
+
+# GUG-543: a real SHA-256 digest is 32 arbitrary bytes. Its base64 form
+# usually decodes to bytes that are not valid UTF-8, which Terraform's
+# base64decode() rejects, so the validation must not decode it.
+run "accepts_real_sha256_digests_that_are_not_utf8" {
+  command = plan
+
+  variables {
+    pre_token_source_code_hash         = "9uknYCvLXJ8Z/bhQxn9YNL50rYGPvGV5XSnmLweewtI="
+    control_processor_source_code_hash = "/x8gBP5sz8n0kdLnUwN7l/Jq3a2eXQbQe/9fxMVc2Ec="
+  }
+
+  assert {
+    condition = (
+      aws_lambda_function.pre_token.source_code_hash == "9uknYCvLXJ8Z/bhQxn9YNL50rYGPvGV5XSnmLweewtI=" &&
+      aws_lambda_function.control_processor.source_code_hash == "/x8gBP5sz8n0kdLnUwN7l/Jq3a2eXQbQe/9fxMVc2Ec="
+    )
+    error_message = "real SHA-256 digests must reach the Lambda functions unchanged"
+  }
+}
+
+run "rejects_a_digest_that_is_not_32_bytes" {
+  command = plan
+
+  variables {
+    pre_token_source_code_hash = "c2hvcnQ="
+  }
+
+  expect_failures = [var.pre_token_source_code_hash]
+}
+
+run "rejects_a_non_canonical_32_byte_encoding" {
+  command = plan
+
+  variables {
+    control_processor_source_code_hash = "9uknYCvLXJ8Z/bhQxn9YNL50rYGPvGV5XSnmLweewtJ="
+  }
+
+  expect_failures = [var.control_processor_source_code_hash]
+}

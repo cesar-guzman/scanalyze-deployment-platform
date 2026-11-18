@@ -104,8 +104,9 @@ resource "terraform_data" "contract_gate" {
             endswith(base64encode(var.release_manifest_contract.pre_token_artifact.object_version), "==")
           )
         ) &&
-        can(base64decode(var.release_manifest_contract.pre_token_artifact.sha256_b64)) &&
-        length(base64decode(var.release_manifest_contract.pre_token_artifact.sha256_b64)) == 32
+        # Canonical base64 of exactly 32 bytes. base64decode() cannot be used: it
+        # rejects decoded bytes that are not valid UTF-8, which most digests are not.
+        can(regex("^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$", var.release_manifest_contract.pre_token_artifact.sha256_b64))
       )
       error_message = "the pre-token artifact must use an immutable bucket/key/version locator and an exact SHA-256 digest."
     }
@@ -136,8 +137,9 @@ resource "terraform_data" "contract_gate" {
             endswith(base64encode(var.release_manifest_contract.control_processor_artifact.object_version), "==")
           )
         ) &&
-        can(base64decode(var.release_manifest_contract.control_processor_artifact.sha256_b64)) &&
-        length(base64decode(var.release_manifest_contract.control_processor_artifact.sha256_b64)) == 32
+        # Canonical base64 of exactly 32 bytes. base64decode() cannot be used: it
+        # rejects decoded bytes that are not valid UTF-8, which most digests are not.
+        can(regex("^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$", var.release_manifest_contract.control_processor_artifact.sha256_b64))
       )
       error_message = "the control-processor artifact must use an immutable bucket/key/version locator and an exact SHA-256 digest."
     }
@@ -161,11 +163,12 @@ resource "terraform_data" "contract_gate" {
     }
 
     precondition {
-      condition = var.m2m_registry_contract.action_scope_sets == {
+      # Compare by value: a list(string) attribute never equals a tuple literal.
+      condition = jsonencode(var.m2m_registry_contract.action_scope_sets) == jsonencode({
         read  = ["scanalyze.api.v1/read"]
         write = ["scanalyze.api.v1/write"]
         admin = ["scanalyze.api.v1/admin"]
-      }
+      })
       error_message = "identity-contract/v2 registry must use the exact canonical action scope sets."
     }
 

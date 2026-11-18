@@ -225,7 +225,7 @@ variable "pre_token_source_code_hash" {
   nullable    = false
 
   validation {
-    condition     = can(base64decode(var.pre_token_source_code_hash)) && length(base64decode(var.pre_token_source_code_hash)) == 32
+    condition     = can(regex("^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$", var.pre_token_source_code_hash))
     error_message = "pre_token_source_code_hash must decode to exactly 32 bytes."
   }
 }
@@ -296,7 +296,7 @@ variable "control_processor_source_code_hash" {
   nullable    = false
 
   validation {
-    condition     = can(base64decode(var.control_processor_source_code_hash)) && length(base64decode(var.control_processor_source_code_hash)) == 32
+    condition     = can(regex("^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$", var.control_processor_source_code_hash))
     error_message = "control_processor_source_code_hash must decode to exactly 32 bytes."
   }
 }
