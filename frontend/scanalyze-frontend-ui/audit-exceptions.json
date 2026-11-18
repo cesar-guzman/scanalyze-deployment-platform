@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "exceptions": [
+    {
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "scope": "development",
+      "granted": "2026-11-17",
+      "expires": "2026-12-17",
+      "reason": "No fixed picomatch release exists (affected: <=4.0.7). picomatch 4.0.5 is reached only through build and lint tooling (vite, @vitejs/plugin-react, typescript-eslint) and is not in the SPA bundle; npm audit --omit=dev reports no advisory."
+    }
+  ]
+}
