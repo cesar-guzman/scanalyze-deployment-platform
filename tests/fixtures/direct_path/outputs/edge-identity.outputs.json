@@ -1,0 +1,443 @@
+{
+  "contract_payload": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "layer": "string",
+        "outputs": [
+          "object",
+          {
+            "account_id": "string",
+            "action_scopes": [
+              "object",
+              {
+                "admin": "string",
+                "read": "string",
+                "write": "string"
+              }
+            ],
+            "allowed_token_uses": [
+              "tuple",
+              [
+                "string"
+              ]
+            ],
+            "api_gateway_authorizer_id": "string",
+            "api_gateway_endpoint": "string",
+            "api_gateway_id": "string",
+            "api_gateway_stage": "string",
+            "authorizer_audiences": [
+              "tuple",
+              [
+                "string"
+              ]
+            ],
+            "authorizer_type": "string",
+            "aws_partition": "string",
+            "cognito_issuer_url": "string",
+            "cognito_spa_client_id": "string",
+            "cognito_user_pool_id": "string",
+            "customer_id": "string",
+            "deployment_id": "string",
+            "id_tokens_accepted": "bool",
+            "identity_control_plane_contract_digest": "string",
+            "identity_control_plane_contract_id": "string",
+            "m2m_client_ids": [
+              "tuple",
+              []
+            ],
+            "policy_canonicalization": "string",
+            "policy_digest": "string",
+            "policy_version": "string",
+            "region": "string",
+            "request_identity_headers_authoritative": "bool",
+            "route_authorization_scopes": [
+              "object",
+              {
+                "GET /api/v1/addons/employee-profiles": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/addons/employee-profiles/export/csv": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/addons/employee-profiles/jobs/{job_id}": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/addons/employee-profiles/status": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/addons/employee-profiles/{profile_id}": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/addons/employee-profiles/{profile_id}/export/csv": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/addons/employee-profiles/{profile_id}/export/json": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/analytics/by-batch": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/analytics/by-day": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/analytics/by-doc-type": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/analytics/costs": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/analytics/dashboard": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/analytics/export-ine": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/analytics/overview": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/analytics/pages-by-user": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/batches/{batch_id}": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/batches/{batch_id}/documents": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/batches/{batch_id}/exports/csv": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/batches/{batch_id}/exports/json": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/batches/{batch_id}/exports/zip": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/batches/{batch_id}/manifest": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/documents/{document_id}": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/documents/{document_id}/artifacts": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/documents/{document_id}/artifacts/{artifact_id}/download": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/documents/{document_id}/download": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v1/documents/{document_id}/result": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v2/documents/{documentId}": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "GET /api/v2/documents/{documentId}/result": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "POST /api/v1/addons/employee-profiles/generate": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "POST /api/v1/batches": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "POST /api/v1/documents": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "POST /api/v1/documents/{document_id}/submit": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "POST /api/v2/batches": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "POST /api/v2/documents": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "POST /api/v2/documents/{documentId}/submit": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "POST /api/v2/documents/{documentId}/upload-capabilities": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "POST /api/v2/operations/{operation}/reconciliation": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ]
+              }
+            ],
+            "x_tenant_id_fallback_enabled": "bool"
+          }
+        ],
+        "schema_version": "string",
+        "state_scope": "string"
+      }
+    ],
+    "value": {
+      "layer": "edge-identity",
+      "outputs": {
+        "account_id": "123456789012",
+        "action_scopes": {
+          "admin": "scanalyze.api.v1/admin",
+          "read": "scanalyze.api.v1/read",
+          "write": "scanalyze.api.v1/write"
+        },
+        "allowed_token_uses": [
+          "access"
+        ],
+        "api_gateway_authorizer_id": "s1a2b3",
+        "api_gateway_endpoint": "https://a1b2c3d4e5.execute-api.us-east-1.amazonaws.com",
+        "api_gateway_id": "a1b2c3d4e5",
+        "api_gateway_stage": "$default",
+        "authorizer_audiences": [
+          "5ynth3t1cspac1ient0000000a"
+        ],
+        "authorizer_type": "native_jwt",
+        "aws_partition": "aws",
+        "cognito_issuer_url": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Synth3t1cPool",
+        "cognito_spa_client_id": "5ynth3t1cspac1ient0000000a",
+        "cognito_user_pool_id": "us-east-1_Synth3t1cPool",
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "id_tokens_accepted": false,
+        "identity_control_plane_contract_digest": "sha256:b754f8976885b2b86ff99e4d28c999503c447dc082dd9ab42b3e4a5657d3ec29",
+        "identity_control_plane_contract_id": "identity-control-plane/v1",
+        "m2m_client_ids": [],
+        "policy_canonicalization": "rfc8785_json_canonicalization",
+        "policy_digest": "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8",
+        "policy_version": "1.0.0",
+        "region": "us-east-1",
+        "request_identity_headers_authoritative": false,
+        "route_authorization_scopes": {
+          "GET /api/v1/addons/employee-profiles": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v1/addons/employee-profiles/export/csv": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v1/addons/employee-profiles/jobs/{job_id}": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/addons/employee-profiles/status": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/addons/employee-profiles/{profile_id}": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v1/addons/employee-profiles/{profile_id}/export/csv": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v1/addons/employee-profiles/{profile_id}/export/json": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v1/analytics/by-batch": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/analytics/by-day": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/analytics/by-doc-type": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/analytics/costs": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/analytics/dashboard": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/analytics/export-ine": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v1/analytics/overview": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/analytics/pages-by-user": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/batches/{batch_id}": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/batches/{batch_id}/documents": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/batches/{batch_id}/exports/csv": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v1/batches/{batch_id}/exports/json": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v1/batches/{batch_id}/exports/zip": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v1/batches/{batch_id}/manifest": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v1/documents/{document_id}": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/documents/{document_id}/artifacts": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v1/documents/{document_id}/artifacts/{artifact_id}/download": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v1/documents/{document_id}/download": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v1/documents/{document_id}/result": [
+            "scanalyze.api.v1/admin"
+          ],
+          "GET /api/v2/documents/{documentId}": [
+            "scanalyze.api.v1/read"
+          ],
+          "GET /api/v2/documents/{documentId}/result": [
+            "scanalyze.api.v1/admin"
+          ],
+          "POST /api/v1/addons/employee-profiles/generate": [
+            "scanalyze.api.v1/write"
+          ],
+          "POST /api/v1/batches": [
+            "scanalyze.api.v1/write"
+          ],
+          "POST /api/v1/documents": [
+            "scanalyze.api.v1/write"
+          ],
+          "POST /api/v1/documents/{document_id}/submit": [
+            "scanalyze.api.v1/write"
+          ],
+          "POST /api/v2/batches": [
+            "scanalyze.api.v1/write"
+          ],
+          "POST /api/v2/documents": [
+            "scanalyze.api.v1/write"
+          ],
+          "POST /api/v2/documents/{documentId}/submit": [
+            "scanalyze.api.v1/write"
+          ],
+          "POST /api/v2/documents/{documentId}/upload-capabilities": [
+            "scanalyze.api.v1/write"
+          ],
+          "POST /api/v2/operations/{operation}/reconciliation": [
+            "scanalyze.api.v1/write"
+          ]
+        },
+        "x_tenant_id_fallback_enabled": false
+      },
+      "schema_version": "2",
+      "state_scope": "regional"
+    }
+  }
+}

@@ -1,0 +1,139 @@
+# Direct-path deployment config (GUG-543) for scripts/deployment/direct-path.py.
+#
+# Copy this file OUTSIDE the repository (for example ~/scanalyze-direct/<deployment>/
+# deployment.yaml) and replace EVERY value. All values below are synthetic
+# placeholders: account 123456789012, the dep_/cust_ ULIDs used by the repo's
+# tests, and *.synthetic.example names. The kit validates formats only; it
+# cannot tell a placeholder from a real value. Terraform's allowed_account_ids
+# (backend and the identity, edge-identity and cicd providers) stops a plan in
+# the wrong account.
+#
+# Runbook: docs/operations/direct-path-deployment.md
+
+kit: scanalyze.direct-path.v1
+
+# ── Deployment identity (immutable for the life of the environment) ──
+customer_id: cust_01ARZ3NDEKTSV4RRFFQ69G5FAV    # cust_<ULID>
+deployment_id: dep_01ARZ3NDEKTSV4RRFFQ69G5FAV   # dep_<ULID>, distinct from customer_id
+account_id: "123456789012"                      # quoted: the new, dedicated account
+region: us-east-1                               # roots/network only supports us-east-1 (AZ IDs use1-az1/use1-az2)
+environment: dev                                # sandbox | dev | staging (never production)
+release_version: 0.1.0-pilot.1                  # semantic version; the edge root rejects anything else
+# aws_partition: aws                            # only the aws partition is supported
+
+# ── Terraform state (create the bucket first; see the runbook) ──
+state_bucket: scanalyze-123456789012-direct-tfstate
+# state_region: us-east-1                       # defaults to region
+# state_kms_key_id: arn:aws:kms:us-east-1:123456789012:key/<key-id>   # optional SSE-KMS key
+
+# ── DNS and TLS ──
+domain_name: pilot.synthetic.example            # SPA/API hostname; must sit in the hosted zone below
+route53_zone_id: Z0SYNTHETIC0EXAMPLE00          # public hosted zone that serves domain_name
+alb_tls_server_name: api-internal.pilot.synthetic.example     # hostname on the internal ALB certificate
+internal_certificate_arn: arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-4000-8000-000000000000
+api_access_log_group_arn: arn:aws:logs:us-east-1:123456789012:log-group:/scanalyze/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/api-access
+
+# ── Optional global-layer overrides (module defaults match the service code) ──
+# The extractor value is the default from GUG-542 on. Claude 3 Haiku reached end
+# of life on Bedrock.
+# global:
+#   bedrock_classifier_model_ids: ["amazon.nova-lite-v1:0"]
+#   bedrock_extractor_model_ids: ["us.anthropic.claude-haiku-4-5-20251001-v1:0"]
+#   runtime_parameter_path_prefix: /scanalyze
+
+# ── Network ──
+# roots/network does not expose CIDRs on this branch. modules/network defaults
+# apply: VPC 10.0.0.0/16, private 10.0.1.0/24 + 10.0.2.0/24, public
+# 10.0.101.0/24 + 10.0.102.0/24, in AZ IDs use1-az1 and use1-az2, one NAT
+# gateway per AZ. The kit refuses a network section until the root declares it.
+
+# ── Identity control plane ──
+identity:
+  # One zip serves both handlers (identity_control_plane.entrypoints). The key
+  # must contain sha256-<64 hex> of the zip; the kit derives the base64
+  # SHA-256 that Lambda expects from it. The bucket must be versioned and in
+  # the deployment region.
+  lambda_artifact:
+    bucket: scanalyze-123456789012-identity-artifacts
+    key: identity-control-plane/sha256-1f3d9a4c6e8b0d2f4a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f.zip
+    object_version: synthetic-version-id-0001     # S3 VersionId of that object
+  # Empty on the first apply. After creating the M2M app client by hand (see
+  # the runbook), add it and re-apply identity-control-plane, services and
+  # edge-identity:
+  #   - client_id: <cognito app client id>
+  #     required_scopes: [scanalyze.api.v1/read, scanalyze.api.v1/write, scanalyze.api.v1/admin]
+  m2m_bindings: []
+  # alarm_actions: [arn:aws:sns:us-east-1:123456789012:<topic>]  # optional, same account and region
+
+# ── CI/CD: ECR repositories only (the kit forces enable_codecommit=false and
+#    enable_codepipeline=false). Repositories become <dep-ulid>/scanalyze/<service>. ──
+microservices:
+  ingest-api: {service_name: ingest-api, ecr_repo_name: scanalyze/ingest-api}
+  ocr-worker: {service_name: ocr-worker, ecr_repo_name: scanalyze/ocr-worker}
+  postprocess-worker: {service_name: postprocess-worker, ecr_repo_name: scanalyze/postprocess-worker}
+  classifier-worker: {service_name: classifier-worker, ecr_repo_name: scanalyze/classifier-worker}
+  bank-worker: {service_name: bank-worker, ecr_repo_name: scanalyze/bank-worker}
+  personal-worker: {service_name: personal-worker, ecr_repo_name: scanalyze/personal-worker}
+  gov-worker: {service_name: gov-worker, ecr_repo_name: scanalyze/gov-worker}
+
+# ── Services ──
+services:
+  # Output of scripts/deployment/render-direct-service-definitions.py (PR #136):
+  # service_definitions and alb_service_routes. Relative to this file. Use
+  # --without-ocr-poller until roots/services declares runtime_wiring (PR #135).
+  inputs_file: services.inputs.json
+
+# ── Edge identity (API Gateway HTTP API + JWT authorizer) ──
+edge_identity:
+  # True only because this new account never held edge-identity Cognito state
+  # (docs/operations/edge-runtime-input-readiness.md, "Handoff authority").
+  legacy_identity_handoff_complete: true
+  # REVIEW BEFORE USE. Proposed from the M2M column of the route inventory in
+  # docs/operations/edge-runtime-input-readiness.md: R -> read, W -> write,
+  # R + A -> admin (one prefilter scope per route; the backend still enforces
+  # every action). Human-only admin routes, passkey, health and docs endpoints
+  # are deliberately absent. Keys are paths after the CloudFront rewrite.
+  api_authorization_routes:
+    "POST /api/v2/batches": [scanalyze.api.v1/write]
+    "POST /api/v2/documents": [scanalyze.api.v1/write]
+    "POST /api/v2/documents/{documentId}/submit": [scanalyze.api.v1/write]
+    "GET /api/v2/documents/{documentId}": [scanalyze.api.v1/read]
+    "POST /api/v2/documents/{documentId}/upload-capabilities": [scanalyze.api.v1/write]
+    "POST /api/v2/operations/{operation}/reconciliation": [scanalyze.api.v1/write]
+    "GET /api/v2/documents/{documentId}/result": [scanalyze.api.v1/admin]
+    "POST /api/v1/documents": [scanalyze.api.v1/write]
+    "POST /api/v1/documents/{document_id}/submit": [scanalyze.api.v1/write]
+    "GET /api/v1/documents/{document_id}": [scanalyze.api.v1/read]
+    "GET /api/v1/documents/{document_id}/result": [scanalyze.api.v1/admin]
+    "GET /api/v1/documents/{document_id}/artifacts": [scanalyze.api.v1/read]
+    "GET /api/v1/documents/{document_id}/download": [scanalyze.api.v1/admin]
+    "GET /api/v1/documents/{document_id}/artifacts/{artifact_id}/download": [scanalyze.api.v1/admin]
+    "POST /api/v1/batches": [scanalyze.api.v1/write]
+    "GET /api/v1/batches/{batch_id}": [scanalyze.api.v1/read]
+    "GET /api/v1/batches/{batch_id}/documents": [scanalyze.api.v1/read]
+    "GET /api/v1/batches/{batch_id}/manifest": [scanalyze.api.v1/admin]
+    "GET /api/v1/batches/{batch_id}/exports/json": [scanalyze.api.v1/admin]
+    "GET /api/v1/batches/{batch_id}/exports/csv": [scanalyze.api.v1/admin]
+    "GET /api/v1/batches/{batch_id}/exports/zip": [scanalyze.api.v1/admin]
+    "GET /api/v1/analytics/dashboard": [scanalyze.api.v1/read]
+    "GET /api/v1/analytics/overview": [scanalyze.api.v1/read]
+    "GET /api/v1/analytics/pages-by-user": [scanalyze.api.v1/read]
+    "GET /api/v1/analytics/by-day": [scanalyze.api.v1/read]
+    "GET /api/v1/analytics/by-batch": [scanalyze.api.v1/read]
+    "GET /api/v1/analytics/by-doc-type": [scanalyze.api.v1/read]
+    "GET /api/v1/analytics/costs": [scanalyze.api.v1/read]
+    "GET /api/v1/analytics/export-ine": [scanalyze.api.v1/admin]
+    "GET /api/v1/addons/employee-profiles/status": [scanalyze.api.v1/read]
+    "GET /api/v1/addons/employee-profiles/export/csv": [scanalyze.api.v1/admin]
+    "POST /api/v1/addons/employee-profiles/generate": [scanalyze.api.v1/write]
+    "GET /api/v1/addons/employee-profiles/jobs/{job_id}": [scanalyze.api.v1/read]
+    "GET /api/v1/addons/employee-profiles": [scanalyze.api.v1/admin]
+    "GET /api/v1/addons/employee-profiles/{profile_id}/export/json": [scanalyze.api.v1/admin]
+    "GET /api/v1/addons/employee-profiles/{profile_id}/export/csv": [scanalyze.api.v1/admin]
+    "GET /api/v1/addons/employee-profiles/{profile_id}": [scanalyze.api.v1/admin]
+
+# ── Edge (CloudFront, WAF, ACM in us-east-1, Route 53, SPA runtime config) ──
+# The SPA origin is the bucket scanalyze-<account_id>-frontend in `region`; the
+# kit derives its endpoint. Human login stays disabled, so features are optional.
+# edge:
+#   frontend_features: {document_upload: false, batch_processing: false, audit_view: false, user_administration: false}

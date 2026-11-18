@@ -1,0 +1,152 @@
+{
+  "contract_payload": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "layer": "string",
+        "outputs": [
+          "object",
+          {
+            "account_id": "string",
+            "action_scope_sets": [
+              "object",
+              {
+                "admin": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "read": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ],
+                "write": [
+                  "tuple",
+                  [
+                    "string"
+                  ]
+                ]
+              }
+            ],
+            "action_scopes": [
+              "object",
+              {
+                "admin": "string",
+                "read": "string",
+                "write": "string"
+              }
+            ],
+            "allowed_token_uses": [
+              "tuple",
+              [
+                "string"
+              ]
+            ],
+            "authz_schema_version": "string",
+            "aws_partition": "string",
+            "cognito_issuer_url": "string",
+            "cognito_spa_client_id": "string",
+            "cognito_user_pool_arn": "string",
+            "cognito_user_pool_id": "string",
+            "customer_claim_name": "string",
+            "customer_id": "string",
+            "deployment_claim_name": "string",
+            "deployment_id": "string",
+            "human_role_groups": [
+              "tuple",
+              [
+                "string",
+                "string",
+                "string",
+                "string"
+              ]
+            ],
+            "human_runtime_provisioning_enabled": "bool",
+            "m2m_bindings": [
+              "tuple",
+              []
+            ],
+            "m2m_client_ids": [
+              "tuple",
+              []
+            ],
+            "m2m_client_secret_values_exposed": "bool",
+            "m2m_runtime_provisioning_enabled": "bool",
+            "policy_canonicalization": "string",
+            "policy_digest": "string",
+            "policy_version": "string",
+            "pre_token_generation_version": "string",
+            "provider_groups_authoritative": "bool",
+            "region": "string",
+            "resource_server_identifier": "string",
+            "role_catalog_version": "string",
+            "scope_catalog_version": "string"
+          }
+        ],
+        "schema_version": "string",
+        "state_scope": "string"
+      }
+    ],
+    "value": {
+      "layer": "identity-control-plane",
+      "outputs": {
+        "account_id": "123456789012",
+        "action_scope_sets": {
+          "admin": [
+            "scanalyze.api.v1/admin"
+          ],
+          "read": [
+            "scanalyze.api.v1/read"
+          ],
+          "write": [
+            "scanalyze.api.v1/write"
+          ]
+        },
+        "action_scopes": {
+          "admin": "scanalyze.api.v1/admin",
+          "read": "scanalyze.api.v1/read",
+          "write": "scanalyze.api.v1/write"
+        },
+        "allowed_token_uses": [
+          "access"
+        ],
+        "authz_schema_version": "enterprise-authorization.v1",
+        "aws_partition": "aws",
+        "cognito_issuer_url": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Synth3t1cPool",
+        "cognito_spa_client_id": "5ynth3t1cspac1ient0000000a",
+        "cognito_user_pool_arn": "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_Synth3t1cPool",
+        "cognito_user_pool_id": "us-east-1_Synth3t1cPool",
+        "customer_claim_name": "custom:customerId",
+        "customer_id": "cust_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "deployment_claim_name": "custom:deployment_id",
+        "deployment_id": "dep_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "human_role_groups": [
+          "customer_admin",
+          "document_operator",
+          "document_reviewer",
+          "auditor"
+        ],
+        "human_runtime_provisioning_enabled": false,
+        "m2m_bindings": [],
+        "m2m_client_ids": [],
+        "m2m_client_secret_values_exposed": false,
+        "m2m_runtime_provisioning_enabled": true,
+        "policy_canonicalization": "rfc8785_json_canonicalization",
+        "policy_digest": "sha256:34a639992f6c2312176ac7dc12c361daa38201adea6af0c0b1765a17a14754f8",
+        "policy_version": "1.0.0",
+        "pre_token_generation_version": "V2_0",
+        "provider_groups_authoritative": false,
+        "region": "us-east-1",
+        "resource_server_identifier": "scanalyze.api.v1",
+        "role_catalog_version": "enterprise-roles.v1",
+        "scope_catalog_version": "scanalyze.api.v1"
+      },
+      "schema_version": "1",
+      "state_scope": "regional"
+    }
+  }
+}

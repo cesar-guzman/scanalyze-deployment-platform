@@ -1,0 +1,53 @@
+{
+  "contract_payload": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "layer": "string",
+        "outputs": [
+          "object",
+          {
+            "private_subnet_ids": [
+              "object",
+              {
+                "use1-az1": "string",
+                "use1-az2": "string"
+              }
+            ],
+            "public_subnet_ids": [
+              "object",
+              {
+                "use1-az1": "string",
+                "use1-az2": "string"
+              }
+            ],
+            "vpc_cidr_block": "string",
+            "vpc_endpoint_sg_id": "string",
+            "vpc_id": "string"
+          }
+        ],
+        "schema_version": "string",
+        "state_scope": "string"
+      }
+    ],
+    "value": {
+      "layer": "network",
+      "outputs": {
+        "private_subnet_ids": {
+          "use1-az1": "subnet-9206fa96140f37fda",
+          "use1-az2": "subnet-3546806846af2c32d"
+        },
+        "public_subnet_ids": {
+          "use1-az1": "subnet-9d1f96d74278deda0",
+          "use1-az2": "subnet-bff95ecce7187b985"
+        },
+        "vpc_cidr_block": "10.0.0.0/16",
+        "vpc_endpoint_sg_id": "sg-585c9089f85b06bd2",
+        "vpc_id": "vpc-38faba71b3a6cfc9e"
+      },
+      "schema_version": "2",
+      "state_scope": "regional"
+    }
+  }
+}

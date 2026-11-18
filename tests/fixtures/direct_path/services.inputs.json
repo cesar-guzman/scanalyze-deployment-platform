@@ -1,0 +1,87 @@
+{
+  "alb_service_routes": {
+    "scanalyze-ingest-api": {
+      "path_patterns": [
+        "/api/v1/*",
+        "/api/v2/*"
+      ],
+      "priority": 100
+    }
+  },
+  "service_definitions": [
+    {
+      "cpu": 512,
+      "desired_count": 1,
+      "extra_environment": [
+        {
+          "name": "GUNICORN_WORKERS",
+          "value": "4"
+        }
+      ],
+      "health_check_path": "/health",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/ingest-api@sha256:7db90745c67f25d23ce303369803d0e012fc28bbeee8db969a734fda93faa6e4",
+      "memory": 1024,
+      "name": "scanalyze-ingest-api",
+      "port": 80
+    },
+    {
+      "cpu": 256,
+      "desired_count": 1,
+      "extra_environment": [],
+      "health_check_path": "/health",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/bank-worker@sha256:f8d68a62716e69ba64ccfa4ca47ac4f2db914186f441051757f349807e4bba72",
+      "memory": 512,
+      "name": "scanalyze-bank-worker"
+    },
+    {
+      "cpu": 256,
+      "desired_count": 1,
+      "extra_environment": [],
+      "health_check_path": "/health",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/personal-worker@sha256:294dd282b695a577682b44f4ff94be63994903b6cea2e773224a6600ab3251b7",
+      "memory": 512,
+      "name": "scanalyze-personal-worker"
+    },
+    {
+      "cpu": 256,
+      "desired_count": 1,
+      "extra_environment": [],
+      "health_check_path": "/health",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/gov-worker@sha256:6590ccd03a81312df6e1b9e9345d35aa901b1e1f804ad887bac675324a9622b8",
+      "memory": 512,
+      "name": "scanalyze-gov-worker"
+    },
+    {
+      "cpu": 512,
+      "desired_count": 1,
+      "extra_environment": [
+        {
+          "name": "FEATURES_BEDROCK_CLASSIFICATION_ENABLED",
+          "value": "true"
+        }
+      ],
+      "health_check_path": "/health",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/classifier-worker@sha256:b1b87b9b96850766295cbf4a6a7af3d076a2aca9e5a61f32e36ba4e8a3c0d203",
+      "memory": 1024,
+      "name": "scanalyze-classifier-worker"
+    },
+    {
+      "cpu": 512,
+      "desired_count": 1,
+      "extra_environment": [],
+      "health_check_path": "/health",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/ocr-worker@sha256:2012830f9168248fc3facb53ad02827f760bcd84f91393e6243ea13e2f7ea5e0",
+      "memory": 2048,
+      "name": "scanalyze-ocr-worker"
+    },
+    {
+      "cpu": 256,
+      "desired_count": 1,
+      "extra_environment": [],
+      "health_check_path": "/health",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/postprocess-worker@sha256:a70b5a764ea3a0383673afc6e8c06e4ccb4d659e6f0cbc309f109f4d0d888019",
+      "memory": 512,
+      "name": "scanalyze-postprocess-worker"
+    }
+  ]
+}

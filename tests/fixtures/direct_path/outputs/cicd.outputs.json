@@ -1,0 +1,303 @@
+{
+  "artifact_bucket_name": {
+    "sensitive": false,
+    "type": "string",
+    "value": "dep-01arz3ndektsv4rrffq69g5fav-cicd-artifacts"
+  },
+  "artifact_kms_key_arn": {
+    "sensitive": false,
+    "type": "string",
+    "value": "arn:aws:kms:us-east-1:123456789012:key/bc66a730-0000-4000-8000-482a72fe8868"
+  },
+  "contract_payload": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "layer": "string",
+        "outputs": [
+          "object",
+          {
+            "artifact_bucket_name": "string",
+            "artifact_kms_key_arn": "string",
+            "codebuild_role_arn": "dynamic",
+            "codecommit_clone_urls": [
+              "object",
+              {}
+            ],
+            "codepipeline_role_arn": "dynamic",
+            "ecr_repository_arns": [
+              "object",
+              {
+                "scanalyze/bank-worker": "string",
+                "scanalyze/classifier-worker": "string",
+                "scanalyze/gov-worker": "string",
+                "scanalyze/ingest-api": "string",
+                "scanalyze/ocr-worker": "string",
+                "scanalyze/personal-worker": "string",
+                "scanalyze/postprocess-worker": "string"
+              }
+            ],
+            "ecr_repository_urls": [
+              "object",
+              {
+                "scanalyze/bank-worker": "string",
+                "scanalyze/classifier-worker": "string",
+                "scanalyze/gov-worker": "string",
+                "scanalyze/ingest-api": "string",
+                "scanalyze/ocr-worker": "string",
+                "scanalyze/personal-worker": "string",
+                "scanalyze/postprocess-worker": "string"
+              }
+            ],
+            "pipeline_arns": [
+              "object",
+              {}
+            ],
+            "pipeline_names": [
+              "object",
+              {}
+            ],
+            "release_metadata": [
+              "object",
+              {
+                "bank-worker": [
+                  "object",
+                  {
+                    "image_digest_parameter": "string",
+                    "image_tag_parameter": "string"
+                  }
+                ],
+                "classifier-worker": [
+                  "object",
+                  {
+                    "image_digest_parameter": "string",
+                    "image_tag_parameter": "string"
+                  }
+                ],
+                "gov-worker": [
+                  "object",
+                  {
+                    "image_digest_parameter": "string",
+                    "image_tag_parameter": "string"
+                  }
+                ],
+                "ingest-api": [
+                  "object",
+                  {
+                    "image_digest_parameter": "string",
+                    "image_tag_parameter": "string"
+                  }
+                ],
+                "ocr-worker": [
+                  "object",
+                  {
+                    "image_digest_parameter": "string",
+                    "image_tag_parameter": "string"
+                  }
+                ],
+                "personal-worker": [
+                  "object",
+                  {
+                    "image_digest_parameter": "string",
+                    "image_tag_parameter": "string"
+                  }
+                ],
+                "postprocess-worker": [
+                  "object",
+                  {
+                    "image_digest_parameter": "string",
+                    "image_tag_parameter": "string"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "schema_version": "string",
+        "state_scope": "string"
+      }
+    ],
+    "value": {
+      "layer": "cicd",
+      "outputs": {
+        "artifact_bucket_name": "dep-01arz3ndektsv4rrffq69g5fav-cicd-artifacts",
+        "artifact_kms_key_arn": "arn:aws:kms:us-east-1:123456789012:key/bc66a730-0000-4000-8000-482a72fe8868",
+        "codebuild_role_arn": null,
+        "codecommit_clone_urls": {},
+        "codepipeline_role_arn": null,
+        "ecr_repository_arns": {
+          "scanalyze/bank-worker": "arn:aws:ecr:us-east-1:123456789012:repository/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/bank-worker",
+          "scanalyze/classifier-worker": "arn:aws:ecr:us-east-1:123456789012:repository/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/classifier-worker",
+          "scanalyze/gov-worker": "arn:aws:ecr:us-east-1:123456789012:repository/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/gov-worker",
+          "scanalyze/ingest-api": "arn:aws:ecr:us-east-1:123456789012:repository/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/ingest-api",
+          "scanalyze/ocr-worker": "arn:aws:ecr:us-east-1:123456789012:repository/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/ocr-worker",
+          "scanalyze/personal-worker": "arn:aws:ecr:us-east-1:123456789012:repository/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/personal-worker",
+          "scanalyze/postprocess-worker": "arn:aws:ecr:us-east-1:123456789012:repository/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/postprocess-worker"
+        },
+        "ecr_repository_urls": {
+          "scanalyze/bank-worker": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/bank-worker",
+          "scanalyze/classifier-worker": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/classifier-worker",
+          "scanalyze/gov-worker": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/gov-worker",
+          "scanalyze/ingest-api": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/ingest-api",
+          "scanalyze/ocr-worker": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/ocr-worker",
+          "scanalyze/personal-worker": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/personal-worker",
+          "scanalyze/postprocess-worker": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/postprocess-worker"
+        },
+        "pipeline_arns": {},
+        "pipeline_names": {},
+        "release_metadata": {
+          "bank-worker": {
+            "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/bank-worker/image_digest",
+            "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/bank-worker/image_tag"
+          },
+          "classifier-worker": {
+            "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/classifier-worker/image_digest",
+            "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/classifier-worker/image_tag"
+          },
+          "gov-worker": {
+            "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/gov-worker/image_digest",
+            "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/gov-worker/image_tag"
+          },
+          "ingest-api": {
+            "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/ingest-api/image_digest",
+            "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/ingest-api/image_tag"
+          },
+          "ocr-worker": {
+            "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/ocr-worker/image_digest",
+            "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/ocr-worker/image_tag"
+          },
+          "personal-worker": {
+            "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/personal-worker/image_digest",
+            "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/personal-worker/image_tag"
+          },
+          "postprocess-worker": {
+            "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/postprocess-worker/image_digest",
+            "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/postprocess-worker/image_tag"
+          }
+        }
+      },
+      "schema_version": "2",
+      "state_scope": "regional"
+    }
+  },
+  "ecr_repository_urls": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "scanalyze/bank-worker": "string",
+        "scanalyze/classifier-worker": "string",
+        "scanalyze/gov-worker": "string",
+        "scanalyze/ingest-api": "string",
+        "scanalyze/ocr-worker": "string",
+        "scanalyze/personal-worker": "string",
+        "scanalyze/postprocess-worker": "string"
+      }
+    ],
+    "value": {
+      "scanalyze/bank-worker": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/bank-worker",
+      "scanalyze/classifier-worker": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/classifier-worker",
+      "scanalyze/gov-worker": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/gov-worker",
+      "scanalyze/ingest-api": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/ingest-api",
+      "scanalyze/ocr-worker": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/ocr-worker",
+      "scanalyze/personal-worker": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/personal-worker",
+      "scanalyze/postprocess-worker": "123456789012.dkr.ecr.us-east-1.amazonaws.com/dep-01arz3ndektsv4rrffq69g5fav/scanalyze/postprocess-worker"
+    }
+  },
+  "pipeline_arns": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {}
+    ],
+    "value": {}
+  },
+  "release_metadata": {
+    "sensitive": false,
+    "type": [
+      "object",
+      {
+        "bank-worker": [
+          "object",
+          {
+            "image_digest_parameter": "string",
+            "image_tag_parameter": "string"
+          }
+        ],
+        "classifier-worker": [
+          "object",
+          {
+            "image_digest_parameter": "string",
+            "image_tag_parameter": "string"
+          }
+        ],
+        "gov-worker": [
+          "object",
+          {
+            "image_digest_parameter": "string",
+            "image_tag_parameter": "string"
+          }
+        ],
+        "ingest-api": [
+          "object",
+          {
+            "image_digest_parameter": "string",
+            "image_tag_parameter": "string"
+          }
+        ],
+        "ocr-worker": [
+          "object",
+          {
+            "image_digest_parameter": "string",
+            "image_tag_parameter": "string"
+          }
+        ],
+        "personal-worker": [
+          "object",
+          {
+            "image_digest_parameter": "string",
+            "image_tag_parameter": "string"
+          }
+        ],
+        "postprocess-worker": [
+          "object",
+          {
+            "image_digest_parameter": "string",
+            "image_tag_parameter": "string"
+          }
+        ]
+      }
+    ],
+    "value": {
+      "bank-worker": {
+        "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/bank-worker/image_digest",
+        "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/bank-worker/image_tag"
+      },
+      "classifier-worker": {
+        "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/classifier-worker/image_digest",
+        "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/classifier-worker/image_tag"
+      },
+      "gov-worker": {
+        "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/gov-worker/image_digest",
+        "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/gov-worker/image_tag"
+      },
+      "ingest-api": {
+        "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/ingest-api/image_digest",
+        "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/ingest-api/image_tag"
+      },
+      "ocr-worker": {
+        "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/ocr-worker/image_digest",
+        "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/ocr-worker/image_tag"
+      },
+      "personal-worker": {
+        "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/personal-worker/image_digest",
+        "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/personal-worker/image_tag"
+      },
+      "postprocess-worker": {
+        "image_digest_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/postprocess-worker/image_digest",
+        "image_tag_parameter": "/dep_01ARZ3NDEKTSV4RRFFQ69G5FAV/cicd/images/postprocess-worker/image_tag"
+      }
+    }
+  }
+}
