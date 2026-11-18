@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import re
+from datetime import date
 from pathlib import Path
 
 from jsonschema import Draft202012Validator, FormatChecker
@@ -92,7 +94,27 @@ def test_frontend_package_exposes_one_reproducible_local_gate() -> None:
         "npm run typecheck && npm run lint && npm run test:unit && npm run build"
     )
     assert package["scripts"]["test:e2e"] == "playwright test"
-    assert package["scripts"]["audit"] == "npm audit --audit-level=low"
+    assert package["scripts"]["audit"] == "node scripts/audit-gate.mjs"
+
+
+def test_frontend_audit_exceptions_are_narrow_and_time_boxed() -> None:
+    """The audit gate keeps the full low-level audit and allows only short, dev-only exceptions."""
+    gate = _read(FRONTEND / "scripts" / "audit-gate.mjs")
+    document = json.loads(_read(FRONTEND / "audit-exceptions.json"))
+
+    assert "export const AUDIT_ARGS = ['audit', '--json', '--audit-level=low'];" in gate
+    assert "runAudit(cwd, ['--omit=dev'])" in gate
+    assert "export const MAX_EXCEPTION_DAYS = 30;" in gate
+
+    assert set(document) == {"schema_version", "exceptions"}
+    assert document["schema_version"] == 1
+    for exception in document["exceptions"]:
+        assert set(exception) == {"advisory", "expires", "granted", "package", "reason", "scope"}
+        assert re.fullmatch(r"GHSA(-[23456789cfghjmpqrvwx]{4}){3}", exception["advisory"])
+        assert exception["scope"] == "development"
+        granted = date.fromisoformat(exception["granted"])
+        expires = date.fromisoformat(exception["expires"])
+        assert 0 <= (expires - granted).days <= 30
 
 
 def test_frontend_ci_is_static_and_clean_clone_reproducible() -> None:
